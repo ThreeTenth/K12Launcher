@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">K12 Launcher</string>
+    <!-- Strings used for fragments for navigation -->
+    <string name="next">Next</string>
+
+    <string name="hello_first_fragment">欢迎使用 K12 桌面成长系统</string>
+</resources>

@@ -1,0 +1,163 @@
+package xyz.whoam.k12.launcher
+
+import android.Manifest
+import android.os.Build
+import android.os.Bundle
+import android.os.Environment
+import android.util.Log
+import android.view.View
+import android.view.WindowManager
+import android.webkit.WebView
+import android.widget.Button
+import android.widget.Toast
+import androidx.annotation.RequiresApi
+import com.liulishuo.okdownload.DownloadListener
+import com.liulishuo.okdownload.DownloadTask
+import com.liulishuo.okdownload.core.breakpoint.BreakpointInfo
+import com.liulishuo.okdownload.core.cause.EndCause
+import com.liulishuo.okdownload.core.cause.ResumeFailedCause
+
+class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultListener {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        requestPermissions(
+            this,
+            Manifest.permission.INTERNET,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        )
+
+        findViewById<Button>(R.id.button_first).setOnClickListener {
+            run {
+                hideSystemUI()
+//                update()
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            setDisplayCutoutEdges()
+        }
+
+       val webview_background = findViewById<WebView>(R.id.webview_background)
+        webview_background.settings.javaScriptEnabled = true
+        webview_background.loadUrl("file:///android_asset/index.html")
+    }
+
+    override fun onBackPressed() {
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemUI()
+    }
+
+    private fun hideSystemUI() {
+        // Enables regular immersive mode.
+        // For "lean back" mode, remove SYSTEM_UI_FLAG_IMMERSIVE.
+        // Or for "sticky immersive," replace it with SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_IMMERSIVE
+                // Set the content to appear under the system bars so that the
+                // content doesn't resize when the system bars hide and show.
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                // Hide the nav bar and status bar
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_FULLSCREEN)
+    }
+
+    // Shows the system bars by removing all the flags
+    // except for the ones that make the content appear under the system bars.
+    private fun showSystemUI() {
+        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.P)
+    private fun setDisplayCutoutEdges() {
+        val layoutParams = window.attributes
+        layoutParams.layoutInDisplayCutoutMode =
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        window.attributes = layoutParams
+    }
+
+    private fun update() {
+        val parentFile = getExternalFilesDir(Environment.MEDIA_MOUNTED)
+        val task = DownloadTask.Builder("http://10.0.0.7/k12.apk", parentFile!!)
+            .setFilename("k12.apk")
+            .setMinIntervalMillisCallbackProcess(30)
+            .setPassIfAlreadyCompleted(true)
+            .build()
+
+        task.enqueue(this)
+    }
+
+    override fun connectTrialEnd(
+        task: DownloadTask,
+        responseCode: Int,
+        responseHeaderFields: MutableMap<String, MutableList<String>>
+    ) {
+    }
+
+    override fun fetchEnd(task: DownloadTask, blockIndex: Int, contentLength: Long) {
+    }
+
+    override fun downloadFromBeginning(
+        task: DownloadTask,
+        info: BreakpointInfo,
+        cause: ResumeFailedCause
+    ) {
+    }
+
+    override fun taskStart(task: DownloadTask) {
+        Toast.makeText(this, "开始下载", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun taskEnd(task: DownloadTask, cause: EndCause, realCause: Exception?) {
+        if (EndCause.ERROR == cause) {
+            Log.e("Download", realCause.toString())
+            Toast.makeText(this, "下载失败", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "下载完成", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun connectTrialStart(
+        task: DownloadTask,
+        requestHeaderFields: MutableMap<String, MutableList<String>>
+    ) {
+    }
+
+    override fun downloadFromBreakpoint(task: DownloadTask, info: BreakpointInfo) {
+    }
+
+    override fun fetchStart(task: DownloadTask, blockIndex: Int, contentLength: Long) {
+    }
+
+    override fun fetchProgress(task: DownloadTask, blockIndex: Int, increaseBytes: Long) {
+        Log.i("Download", "progress: $blockIndex, $increaseBytes")
+    }
+
+    override fun connectEnd(
+        task: DownloadTask,
+        blockIndex: Int,
+        responseCode: Int,
+        responseHeaderFields: MutableMap<String, MutableList<String>>
+    ) {
+    }
+
+    override fun connectStart(
+        task: DownloadTask,
+        blockIndex: Int,
+        requestHeaderFields: MutableMap<String, MutableList<String>>
+    ) {
+    }
+
+    override fun onResult(result: Boolean) {
+        Toast.makeText(this, "授权结果：$result", Toast.LENGTH_SHORT).show()
+    }
+}
