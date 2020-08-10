@@ -19,10 +19,10 @@ jobs:
         java-version: 1.8
     - name: Build with Gradle
       working-directory: ./source/android
-      run: ./gradlew build
+      run: gradlew build
       
     - name: Publish Build Artifact
       uses: actions/upload-artifact@v2
       with:
         name: android
-        path: ./source/android/app/release
+        path: ./source/android/app/build/outputs/apk/release
