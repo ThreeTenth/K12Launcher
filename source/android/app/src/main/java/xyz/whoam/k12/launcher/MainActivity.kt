@@ -1,6 +1,8 @@
 package xyz.whoam.k12.launcher
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -11,11 +13,14 @@ import android.webkit.WebView
 import android.widget.Button
 import android.widget.Toast
 import androidx.annotation.RequiresApi
+import androidx.core.content.FileProvider
 import com.liulishuo.okdownload.DownloadListener
 import com.liulishuo.okdownload.DownloadTask
+import com.liulishuo.okdownload.OkDownloadProvider.context
 import com.liulishuo.okdownload.core.breakpoint.BreakpointInfo
 import com.liulishuo.okdownload.core.cause.EndCause
 import com.liulishuo.okdownload.core.cause.ResumeFailedCause
+import java.io.File
 
 class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultListener {
 
@@ -27,13 +32,13 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
             this,
             Manifest.permission.INTERNET,
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            Manifest.permission.READ_EXTERNAL_STORAGE
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.REQUEST_INSTALL_PACKAGES
         )
 
         findViewById<Button>(R.id.button_first).setOnClickListener {
             run {
                 hideSystemUI()
-//                update()
             }
         }
 
@@ -41,9 +46,11 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
             setDisplayCutoutEdges()
         }
 
-       val webview_background = findViewById<WebView>(R.id.webview_background)
-        webview_background.settings.javaScriptEnabled = true
-        webview_background.loadUrl("file:///android_asset/index.html")
+//       val webview_background = findViewById<WebView>(R.id.webview_background)
+//        webview_background.settings.javaScriptEnabled = true
+//        webview_background.loadUrl("file:///android_asset/index.html")
+
+        update()
     }
 
     override fun onBackPressed() {
@@ -87,13 +94,35 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
 
     private fun update() {
         val parentFile = getExternalFilesDir(Environment.MEDIA_MOUNTED)
-        val task = DownloadTask.Builder("http://10.0.0.7/k12.apk", parentFile!!)
-            .setFilename("k12.apk")
+        val packageName = application.packageName
+        val versionCode = 0
+        val updateURL = "https://cloud.whoam.xyz/v1/apk/$packageName/$versionCode"
+        Log.i("Download", updateURL)
+        val task = DownloadTask.Builder(updateURL, parentFile!!)
+            .setFilename("update.apk")
             .setMinIntervalMillisCallbackProcess(30)
-            .setPassIfAlreadyCompleted(true)
+            .setPassIfAlreadyCompleted(false)
             .build()
 
         task.enqueue(this)
+    }
+
+    private fun installUpdateFile() {
+        val install = Intent(Intent.ACTION_VIEW)
+        install.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        val apkFile = File(getExternalFilesDir(Environment.MEDIA_MOUNTED), "update.apk")
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val authority = "${application.packageName}.fileProvider"
+            val contentUri = FileProvider.getUriForFile(context,  authority, apkFile)
+            Log.i("Download", "$authority: $contentUri")
+            install.setDataAndType(contentUri, "application/vnd.android.package-archive")
+        } else {
+            install.setDataAndType(Uri.fromFile(apkFile), "application/vnd.android.package-archive")
+        }
+
+        startActivity(install)
     }
 
     override fun connectTrialEnd(
@@ -114,15 +143,18 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
     }
 
     override fun taskStart(task: DownloadTask) {
-        Toast.makeText(this, "开始下载", Toast.LENGTH_SHORT).show()
+//        Toast.makeText(this, "检查更新", Toast.LENGTH_SHORT).show()
     }
 
     override fun taskEnd(task: DownloadTask, cause: EndCause, realCause: Exception?) {
         if (EndCause.ERROR == cause) {
             Log.e("Download", realCause.toString())
-            Toast.makeText(this, "下载失败", Toast.LENGTH_SHORT).show()
+//            Toast.makeText(this, "下载失败", Toast.LENGTH_SHORT).show()
         } else {
-            Toast.makeText(this, "下载完成", Toast.LENGTH_SHORT).show()
+            Log.i("Download", "cause: $cause")
+//            Toast.makeText(this, "下载完成", Toast.LENGTH_SHORT).show()
+
+            installUpdateFile()
         }
     }
 

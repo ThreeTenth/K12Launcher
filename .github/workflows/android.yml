@@ -22,7 +22,16 @@ jobs:
       run: ./gradlew build
       
     - name: Publish Build Artifact
+      working-directory: ./source/android/app/build/outputs/apk
       uses: actions/upload-artifact@v2
       with:
         name: android
-        path: ./source/android/app/build/outputs/apk/release
+        path: ./release
+
+    - name: Deploy to Server
+      working-directory: ./source/android/app/build/outputs/apk/release
+      run: |
+        for file in `find . -name "*.apk" -type f  -print`; do
+          file=`readlink -f $file`
+          curl -X "POST" -F "file=@$file" https://cloud.whoam.xyz/v1/apk
+        done
