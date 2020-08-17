@@ -21,13 +21,6 @@ jobs:
       working-directory: ./source/android
       run: ./gradlew build
       
-    - name: Publish Build Artifact
-      working-directory: ./source/android/app/build/outputs/apk
-      uses: actions/upload-artifact@v2
-      with:
-        name: android
-        path: ./release
-
     - name: Deploy to Server
       working-directory: ./source/android/app/build/outputs/apk/release
       run: |
