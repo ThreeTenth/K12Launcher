@@ -32,5 +32,4 @@ jobs:
     - name: Publish Build Artifact
       uses: actions/upload-artifact@v2
       with:
-        name: android
         path: ./source/android/app/build/outputs/apk/release/*.apk
