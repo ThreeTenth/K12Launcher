@@ -30,8 +30,7 @@ jobs:
         done
       
     - name: Publish Build Artifact
-      working-directory: ./source/android/app/build/outputs/apk
       uses: actions/upload-artifact@v2
       with:
         name: android
-        path: ./release
+        path: ./source/android/app/build/outputs/apk/release/*.apk
