@@ -2,15 +2,22 @@ apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-android-extensions'
 
+def cmdVersionCode = 'git rev-list HEAD --count'
+def versionCodeValue = cmdVersionCode.execute().text.trim().toInteger()
+
+def cmdVersionName = 'git describe --tags'
+def versionNameValue  = cmdVersionName.execute().text.trim()
+
 android {
+
     compileSdkVersion 29
 
     defaultConfig {
         applicationId "xyz.whoam.k12.launcher"
         minSdkVersion 21
         targetSdkVersion 29
-        versionCode 3
-        versionName "1.1.1"
+        versionCode versionCodeValue
+        versionName versionNameValue
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }

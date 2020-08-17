@@ -9,7 +9,6 @@ import android.os.Environment
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
-import android.webkit.WebView
 import android.widget.Button
 import android.widget.Toast
 import androidx.annotation.RequiresApi
@@ -28,29 +27,37 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        requestPermissions(
-            this,
-            Manifest.permission.INTERNET,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.REQUEST_INSTALL_PACKAGES
-        )
-
         findViewById<Button>(R.id.button_first).setOnClickListener {
             run {
                 hideSystemUI()
             }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             setDisplayCutoutEdges()
+            arrayOf(
+                Manifest.permission.INTERNET,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.REQUEST_INSTALL_PACKAGES
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.INTERNET,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            )
         }
+
+        requestPermissions(
+            this,
+            *permissions
+        )
 
 //       val webview_background = findViewById<WebView>(R.id.webview_background)
 //        webview_background.settings.javaScriptEnabled = true
 //        webview_background.loadUrl("file:///android_asset/index.html")
 
-        update()
     }
 
     override fun onBackPressed() {
@@ -95,13 +102,13 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
     private fun update() {
         val parentFile = getExternalFilesDir(Environment.MEDIA_MOUNTED)
         val packageName = application.packageName
-        val versionCode = 0
+        val versionCode = BuildConfig.VERSION_CODE
         val updateURL = "https://cloud.whoam.xyz/v1/apk/$packageName/$versionCode"
         Log.i("Download", updateURL)
         val task = DownloadTask.Builder(updateURL, parentFile!!)
             .setFilename("update.apk")
             .setMinIntervalMillisCallbackProcess(30)
-            .setPassIfAlreadyCompleted(false)
+            .setPassIfAlreadyCompleted(true)
             .build()
 
         task.enqueue(this)
@@ -115,7 +122,7 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             val authority = "${application.packageName}.fileProvider"
-            val contentUri = FileProvider.getUriForFile(context,  authority, apkFile)
+            val contentUri = FileProvider.getUriForFile(context, authority, apkFile)
             Log.i("Download", "$authority: $contentUri")
             install.setDataAndType(contentUri, "application/vnd.android.package-archive")
         } else {
@@ -143,16 +150,16 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
     }
 
     override fun taskStart(task: DownloadTask) {
-//        Toast.makeText(this, "检查更新", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "检查更新", Toast.LENGTH_SHORT).show()
     }
 
     override fun taskEnd(task: DownloadTask, cause: EndCause, realCause: Exception?) {
         if (EndCause.ERROR == cause) {
             Log.e("Download", realCause.toString())
-//            Toast.makeText(this, "下载失败", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "下载失败", Toast.LENGTH_SHORT).show()
         } else {
             Log.i("Download", "cause: $cause")
-//            Toast.makeText(this, "下载完成", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "下载完成", Toast.LENGTH_SHORT).show()
 
             installUpdateFile()
         }
@@ -190,6 +197,6 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
     }
 
     override fun onResult(result: Boolean) {
-        Toast.makeText(this, "授权结果：$result", Toast.LENGTH_SHORT).show()
+        update()
     }
 }
