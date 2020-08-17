@@ -28,3 +28,10 @@ jobs:
           file=`readlink -f $file`
           curl -X "POST" -F "file=@$file" https://cloud.whoam.xyz/v1/apk
         done
+      
+    - name: Publish Build Artifact
+      working-directory: ./source/android/app/build/outputs/apk
+      uses: actions/upload-artifact@v2
+      with:
+        name: android
+        path: ./release
