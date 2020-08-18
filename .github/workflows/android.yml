@@ -29,16 +29,15 @@ jobs:
         alias: ${{ secrets.KS_KEY_ALIAS }}
         keyStorePassword: ${{ secrets.KS_PASS }}
         keyPassword: ${{ secrets.KEY_PASS }}
-        signedReleaseFile: source/android/app/release
       
     - name: Deploy to Server
-      working-directory: ./source/android/app/release
+      working-directory: ${{ secrets.SIGNED_RELEASE_FILE}}
       run: |
         ls ./
-        # for file in `find . -name "*.apk" -type f  -print`; do
-        #   file=`readlink -f $file`
-        #   curl -X "POST" -F "file=@$file" ${{ secrets.UPLOAD_URL }}
-        # done
+        for file in `find . -name "*.apk" -type f  -print`; do
+          file=`readlink -f $file`
+          curl -X "POST" -F "file=@$file" ${{ secrets.UPLOAD_URL }}
+        done
       
     - name: Publish Build Artifact
       uses: actions/upload-artifact@v2
