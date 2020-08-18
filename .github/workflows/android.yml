@@ -31,13 +31,12 @@ jobs:
         keyPassword: ${{ secrets.KEY_PASS }}
       
     - name: Deploy to Server
-      working-directory: ${{ secrets.SIGNED_RELEASE_FILE}}
       run: |
-        ls ./
-        for file in `find . -name "*.apk" -type f  -print`; do
-          file=`readlink -f $file`
-          curl -X "POST" -F "file=@$file" ${{ secrets.UPLOAD_URL }}
-        done
+        curl -X "POST" -F "file=@$SIGNED_RELEASE_FILE" ${{ secrets.UPLOAD_URL }}
+#        for file in `find . -name "*.apk" -type f  -print`; do
+#          file=`readlink -f $file`
+#          curl -X "POST" -F "file=@$file" ${{ secrets.UPLOAD_URL }}
+#        done
       
     - name: Publish Build Artifact
       uses: actions/upload-artifact@v2
