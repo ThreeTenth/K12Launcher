@@ -32,7 +32,7 @@ jobs:
       
     - name: Deploy to Server
       run: |
-        pwd
+        echo $secrets.SIGNED_RELEASE_FILE
         curl -X "POST" -F "file=@${{ secrets.SIGNED_RELEASE_FILE }}" ${{ secrets.UPLOAD_URL }}
 #        for file in `find . -name "*.apk" -type f  -print`; do
 #          file=`readlink -f $file`
