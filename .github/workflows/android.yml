@@ -23,20 +23,14 @@ jobs:
 
     - name: Sign with apksigner
       working-directory: ./source/android
-      run: |
-        unsign_root="./app/build/outputs/apk/release"
-        signed_root="./app/release"
-        for file in `ls $unsign_root`; do
-          filelink=`readlink -f $file`
-          unsigned_apk="$filelink"
-          aligned_apk="$signed_root/aligned.apk"
-          signed_apk=$signed_root/$file
-
-          zipalign -v -p 4 "$unsigned_apk" "$$aligned_apk"
-          apksigner sign --v1-signing-enabled true --v2-signing-enabled true --ks "./release.jks" --ks-pass pass:"${{ secrets.KS_PASS }}" --ks-key-alias "${{ secrets.KS_KEY_ALIAS }}" --key-pass pass:"${{ secrets.KEY_PASS }}" --out "$signed_apk" "$aligned_apk"
-          apksigner verify --min-sdk-version $min_sdk_version "$signed_apk"
-          echo "Signed $file"
-        done
+      uses: r0adkll/sign-android-release@v1
+      with:
+        releaseDirectory: app/build/outputs/apk/release
+        signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+        alias: ${{ secrets.KS_KEY_ALIAS }}
+        keyStorePassword: ${{ secrets.KS_PASS }}
+        keyPassword: ${{ secrets.KEY_PASS }}
+        signedReleaseFile: app/release
       
     - name: Deploy to Server
       working-directory: ./source/android/app/release
