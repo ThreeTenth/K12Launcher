@@ -32,8 +32,8 @@ jobs:
       
     - name: Deploy to Server
       run: |
-        echo $secrets.SIGNED_RELEASE_FILE
-        curl -X "POST" -F "file=@${{ secrets.SIGNED_RELEASE_FILE }}" ${{ secrets.UPLOAD_URL }}
+        echo "$signedReleaseFile"
+        curl -X "POST" -F "file=@$signedReleaseFile" ${{ secrets.UPLOAD_URL }}
 #        for file in `find . -name "*.apk" -type f  -print`; do
 #          file=`readlink -f $file`
 #          curl -X "POST" -F "file=@$file" ${{ secrets.UPLOAD_URL }}
