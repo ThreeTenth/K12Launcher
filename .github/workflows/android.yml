@@ -21,16 +21,15 @@ jobs:
       working-directory: ./source/android
       run: ./gradlew build
 
-    - name: Sign with apksigner
-      working-directory: ./source/android
+    - name: Sign Android release
       uses: r0adkll/sign-android-release@v1
       with:
-        releaseDirectory: app/build/outputs/apk/release
+        releaseDirectory: source/android/app/build/outputs/apk/release
         signingKeyBase64: ${{ secrets.SIGNING_KEY }}
         alias: ${{ secrets.KS_KEY_ALIAS }}
         keyStorePassword: ${{ secrets.KS_PASS }}
         keyPassword: ${{ secrets.KEY_PASS }}
-        signedReleaseFile: app/release
+        signedReleaseFile: source/android/app/release
       
     - name: Deploy to Server
       working-directory: ./source/android/app/release
