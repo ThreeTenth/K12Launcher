@@ -1,12 +1,26 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-android-extensions'
+apply plugin: "org.ajoberstar.grgit"
 
-def cmdVersionCode = 'git rev-list HEAD --count'
-def versionCodeValue = cmdVersionCode.execute().text.trim().toInteger()
+ext {
+    // [grgit](http://ajoberstar.org/grgit/)
+    git = grgit.open()
+    gitVersionCode = git.log().size()
+    gitVersionName = git.describe(tags: true)
 
-def cmdVersionName = 'git describe --tags'
-def versionNameValue  = cmdVersionName.execute().text.trim()
+    // [自动版本号发布](https://leonchen1024.com/2019/05/28/Automatic-Version-Code-Release/)
+    def pattern = "-(\\d+)-g"
+    def matcher = gitVersionName =~ pattern
+    if (matcher) {
+        // 以距离上个 tag 的提交次数为第三个版本号.
+        gitVersionName = gitVersionName.substring(0, matcher.start()) + "." + matcher[0][1]
+    } else {
+        gitVersionName = gitVersionName + ".0"
+    }
+
+    println "Build $gitVersionCode $gitVersionName"
+}
 
 android {
 
@@ -16,8 +30,8 @@ android {
         applicationId "xyz.whoam.k12.launcher"
         minSdkVersion 21
         targetSdkVersion 29
-        versionCode versionCodeValue
-        versionName versionNameValue
+        versionCode gitVersionCode
+        versionName gitVersionName
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -33,7 +47,7 @@ android {
         variant.outputs.all { output ->
             def buildName = "K12"
             def type = variant.buildType.name
-            def releaseApkName = buildName + '_' + type + "_" + versionName + '.apk'
+            def releaseApkName = buildName + "_" + defaultConfig.versionName + '_' + type + '.apk'
             outputFileName = releaseApkName
         }
     }
