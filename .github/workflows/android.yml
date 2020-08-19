@@ -41,4 +41,4 @@ jobs:
     - name: Publish Build h
       uses: actions/upload-artifact@v2
       with:
-        path: "$SIGNED_RELEASE_FILE"
+        path: $env.SIGNED_RELEASE_FILE
