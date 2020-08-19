@@ -41,5 +41,5 @@ jobs:
     - name: Publish Signed Artifact
       uses: actions/upload-artifact@v2
       with:
-        name: K12_${{ GITHUB_REF}}_release
+        name: K12Launcher_${{ env.GITHUB_HEAD_REF }}_${{ env.GITHUB_RUN_NUMBER}}_release
         path: ${{ env.SIGNED_RELEASE_FILE }}
