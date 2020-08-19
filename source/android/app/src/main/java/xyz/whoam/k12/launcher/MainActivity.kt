@@ -12,7 +12,6 @@ import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
-import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import com.liulishuo.okdownload.DownloadListener
@@ -36,6 +35,15 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
             }
         }
 
+//       val webview_background = findViewById<WebView>(R.id.webview_background)
+//        webview_background.settings.javaScriptEnabled = true
+//        webview_background.loadUrl("file:///android_asset/index.html")
+
+    }
+
+    override fun onResume() {
+        super.onResume()
+
         val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             setDisplayCutoutEdges()
             arrayOf(
@@ -56,11 +64,6 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
             this,
             *permissions
         )
-
-//       val webview_background = findViewById<WebView>(R.id.webview_background)
-//        webview_background.settings.javaScriptEnabled = true
-//        webview_background.loadUrl("file:///android_asset/index.html")
-
     }
 
     override fun onBackPressed() {
