@@ -1,7 +1,9 @@
 package xyz.whoam.k12.launcher
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +22,7 @@ import com.liulishuo.okdownload.core.breakpoint.BreakpointInfo
 import com.liulishuo.okdownload.core.cause.EndCause
 import com.liulishuo.okdownload.core.cause.ResumeFailedCause
 import java.io.File
+
 
 class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultListener {
 
@@ -132,6 +135,36 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
         startActivity(install)
     }
 
+    private fun getPackageList(ctx: Context) {
+        Log.d("TAG", "无需权限获取应用列表")
+        val v9: PackageManager = ctx.packageManager
+        var v2: Array<String?>?
+        var uid = 1000
+        while (uid <= 19999) {
+            v2 = v9.getPackagesForUid(uid)
+            if (v2 != null && v2.isNotEmpty()) {
+                for (item in v2) {
+                    try {
+                        val v6 = v9.getPackageInfo(item, 0) ?: break
+                        val v7 = v9.getApplicationLabel(
+                            v9.getApplicationInfo(
+                                v6.packageName,
+                                PackageManager.GET_META_DATA
+                            )
+                        )
+                        Log.d(
+                            "TAG",
+                            "应用名称 = " + v7.toString() + " (" + v6.packageName + ")"
+                        )
+                    } catch (e: PackageManager.NameNotFoundException) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+            uid++
+        }
+    }
+
     override fun connectTrialEnd(
         task: DownloadTask,
         responseCode: Int,
@@ -150,16 +183,16 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
     }
 
     override fun taskStart(task: DownloadTask) {
-        Toast.makeText(this, "检查更新", Toast.LENGTH_SHORT).show()
+//        Toast.makeText(this, "检查更新", Toast.LENGTH_SHORT).show()
     }
 
     override fun taskEnd(task: DownloadTask, cause: EndCause, realCause: Exception?) {
         if (EndCause.ERROR == cause) {
             Log.e("Download", realCause.toString())
-            Toast.makeText(this, "下载失败", Toast.LENGTH_SHORT).show()
+//            Toast.makeText(this, "下载失败", Toast.LENGTH_SHORT).show()
         } else {
             Log.i("Download", "cause: $cause")
-            Toast.makeText(this, "下载完成", Toast.LENGTH_SHORT).show()
+//            Toast.makeText(this, "下载完成", Toast.LENGTH_SHORT).show()
 
             installUpdateFile()
         }
