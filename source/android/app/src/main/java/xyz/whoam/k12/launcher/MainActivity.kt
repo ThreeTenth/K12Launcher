@@ -11,6 +11,7 @@ import android.os.Environment
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
+import android.webkit.WebView
 import android.widget.Button
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
@@ -32,38 +33,35 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
         findViewById<Button>(R.id.button_first).setOnClickListener {
             run {
                 hideSystemUI()
+
+                val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    setDisplayCutoutEdges()
+                    arrayOf(
+                        Manifest.permission.INTERNET,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        Manifest.permission.READ_EXTERNAL_STORAGE,
+                        Manifest.permission.REQUEST_INSTALL_PACKAGES
+                    )
+                } else {
+                    arrayOf(
+                        Manifest.permission.INTERNET,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        Manifest.permission.READ_EXTERNAL_STORAGE
+                    )
+                }
+
+                requestPermissions(
+                    this,
+                    *permissions
+                )
             }
         }
 
-//       val webview_background = findViewById<WebView>(R.id.webview_background)
-//        webview_background.settings.javaScriptEnabled = true
-//        webview_background.loadUrl("file:///android_asset/index.html")
+        val webviewBackground = findViewById<WebView>(R.id.webview_background)
+        webviewBackground.settings.javaScriptEnabled = true
+        webviewBackground.loadUrl("file:///android_asset/index.html")
 
-    }
-
-    override fun onResume() {
-        super.onResume()
-
-        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            setDisplayCutoutEdges()
-            arrayOf(
-                Manifest.permission.INTERNET,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.REQUEST_INSTALL_PACKAGES
-            )
-        } else {
-            arrayOf(
-                Manifest.permission.INTERNET,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            )
-        }
-
-        requestPermissions(
-            this,
-            *permissions
-        )
+//        getPackageList(this)
     }
 
     override fun onBackPressed() {
@@ -114,7 +112,7 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
         val task = DownloadTask.Builder(updateURL, parentFile!!)
             .setFilename("update.apk")
             .setMinIntervalMillisCallbackProcess(30)
-            .setPassIfAlreadyCompleted(true)
+            .setPassIfAlreadyCompleted(false)
             .build()
 
         task.enqueue(this)
@@ -190,14 +188,14 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
     }
 
     override fun taskEnd(task: DownloadTask, cause: EndCause, realCause: Exception?) {
-        if (EndCause.ERROR == cause) {
-            Log.e("Download", realCause.toString())
-//            Toast.makeText(this, "下载失败", Toast.LENGTH_SHORT).show()
-        } else {
-            Log.i("Download", "cause: $cause")
+        if (EndCause.COMPLETED == cause) {
 //            Toast.makeText(this, "下载完成", Toast.LENGTH_SHORT).show()
 
             installUpdateFile()
+        } else {
+            Log.i("Download", "cause: $cause")
+            Log.e("Download", realCause.toString())
+//            Toast.makeText(this, "下载失败", Toast.LENGTH_SHORT).show()
         }
     }
 
