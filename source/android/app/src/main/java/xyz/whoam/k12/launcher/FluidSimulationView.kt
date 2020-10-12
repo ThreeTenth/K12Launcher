@@ -1,7 +1,7 @@
 package xyz.whoam.k12.launcher
 
 import android.content.Context
-import android.opengl.GLES20
+import android.graphics.Color
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.util.AttributeSet
@@ -9,6 +9,32 @@ import android.util.Log
 import java.nio.IntBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+
+const val SIM_RESOLUTION = "SIM_RESOLUTION"
+const val DYE_RESOLUTION = "DYE_RESOLUTION"
+const val CAPTURE_RESOLUTION = "CAPTURE_RESOLUTION"
+const val DENSITY_DISSIPATION = "DENSITY_DISSIPATION"
+const val VELOCITY_DISSIPATION = "VELOCITY_DISSIPATION"
+const val PRESSURE = "PRESSURE"
+const val PRESSURE_ITERATIONS = "PRESSURE_ITERATIONS"
+const val CURL = "CURL"
+const val SPLAT_RADIUS = "SPLAT_RADIUS"
+const val SPLAT_FORCE = "SPLAT_FORCE"
+const val SHADING = "SHADING"
+const val COLORFUL = "COLORFUL"
+const val COLOR_UPDATE_SPEED = "COLOR_UPDATE_SPEED"
+const val PAUSED = "PAUSED"
+const val BACK_COLOR = "BACK_COLOR"
+const val TRANSPARENT = "TRANSPARENT"
+const val BLOOM = "BLOOM"
+const val BLOOM_ITERATIONS = "BLOOM_ITERATIONS"
+const val BLOOM_RESOLUTION = "BLOOM_RESOLUTION"
+const val BLOOM_INTENSITY = "BLOOM_INTENSITY"
+const val BLOOM_THRESHOLD = "BLOOM_THRESHOLD"
+const val BLOOM_SOFT_KNEE = "BLOOM_SOFT_KNEE"
+const val SUNRAYS = "SUNRAYS"
+const val SUNRAYS_RESOLUTION = "SUNRAYS_RESOLUTION"
+const val SUNRAYS_WEIGHT = "SUNRAYS_WEIGHT"
 
 class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceView(context, attrs) {
     private var renderer: FluidSimulationRenderer
@@ -27,6 +53,14 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
     data class SupportFormat(val internalFormat: Int, val format: Int)
 
+    data class GLContextExt(
+        val formatRGBA: SupportFormat?,
+        val formatRG: SupportFormat?,
+        val formatR: SupportFormat?,
+        val halfFloatTexType: Int,
+        val supportLinearFiltering: Boolean
+    )
+
     data class FBO(
         val texture: Int,
         val fbo: Int,
@@ -36,29 +70,39 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         val texelSizeY: Float
     ) {
         fun attach(id: Int): Int {
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + id)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + id)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
             return id
         }
     }
 
-    class Program(vertexShader: Int, fragmentShader: Int) {
-        init {
+    inner class Program(vertexShader: Int, fragmentShader: Int) {
+        private val program: Int = createProgram(vertexShader, fragmentShader)
 
-        }
-
-        fun createProgram(vertexShader: Int, fragmentShader: Int) {
-            val program = GLES20.glCreateProgram()
-            GLES20.glAttachShader(program, vertexShader)
-            GLES20.glAttachShader(program, fragmentShader)
-            GLES20.glLinkProgram(program)
+        fun bind() {
+            GLES30.glUseProgram(program)
         }
     }
 
-    inner class FluidSimulationRenderer : Renderer {
+    private fun createProgram(vertexShader: Int, fragmentShader: Int) : Int {
+        val program: Int = GLES30.glCreateProgram()
+        GLES30.glAttachShader(program, vertexShader)
+        GLES30.glAttachShader(program, fragmentShader)
+        GLES30.glLinkProgram(program)
+
+        return program
+    }
+
+    private fun getUniforms(program: Int) {
+//        var uniforms = listOf(0)
+//        var count: Int
+//        val uniformCout = GLES30.glGetProgramiv(program, GLES30.GL_ACTIVE_UNIFORMS, count)
+    }
+
+    inner class FluidSimulationRenderer() : Renderer {
 
         private val baseVertexShader = compileShader(
-            GLES20.GL_VERTEX_SHADER, "" +
+            GLES30.GL_VERTEX_SHADER, "" +
                     "    precision highp float;\n" +
                     "    attribute vec2 aPosition;\n" +
                     "    varying vec2 vUv;\n" +
@@ -78,7 +122,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val blurVertexShader = compileShader(
-            GLES20.GL_VERTEX_SHADER, "" +
+            GLES30.GL_VERTEX_SHADER, "" +
                     "    precision highp float;\n" +
                     "    attribute vec2 aPosition;\n" +
                     "    varying vec2 vUv;\n" +
@@ -95,7 +139,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val blurShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    precision mediump sampler2D;\n" +
                     "    varying vec2 vUv;\n" +
@@ -111,7 +155,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val copyShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    precision mediump sampler2D;\n" +
                     "    varying highp vec2 vUv;\n" +
@@ -122,7 +166,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val clearShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    precision mediump sampler2D;\n" +
                     "    varying highp vec2 vUv;\n" +
@@ -134,7 +178,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val colorShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    uniform vec4 color;\n" +
                     "    void main () {\n" +
@@ -143,7 +187,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val checkerboardShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision highp float;\n" +
                     "    precision highp sampler2D;\n" +
                     "    varying vec2 vUv;\n" +
@@ -161,7 +205,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 //        private val displayShaderSource;
 
         private val bloomPrefilterShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    precision mediump sampler2D;\n" +
                     "    varying vec2 vUv;\n" +
@@ -179,7 +223,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val bloomBlurShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    precision mediump sampler2D;\n" +
                     "    varying vec2 vL;\n" +
@@ -199,7 +243,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val bloomFinalShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    precision mediump sampler2D;\n" +
                     "    varying vec2 vL;\n" +
@@ -220,7 +264,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val sunraysMaskShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision highp float;\n" +
                     "    precision highp sampler2D;\n" +
                     "    varying vec2 vUv;\n" +
@@ -234,7 +278,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val sunraysShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision highp float;\n" +
                     "    precision highp sampler2D;\n" +
                     "    varying vec2 vUv;\n" +
@@ -262,7 +306,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val splatShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision highp float;\n" +
                     "    precision highp sampler2D;\n" +
                     "    varying vec2 vUv;\n" +
@@ -281,7 +325,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val advectionShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision highp float;\n" +
                     "    precision highp sampler2D;\n" +
                     "    varying vec2 vUv;\n" +
@@ -315,7 +359,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val divergenceShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    precision mediump sampler2D;\n" +
                     "    varying highp vec2 vUv;\n" +
@@ -340,7 +384,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val curlShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    precision mediump sampler2D;\n" +
                     "    varying highp vec2 vUv;\n" +
@@ -360,7 +404,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val vorticityShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision highp float;\n" +
                     "    precision highp sampler2D;\n" +
                     "    varying vec2 vUv;\n" +
@@ -390,7 +434,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val pressureShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    precision mediump sampler2D;\n" +
                     "    varying highp vec2 vUv;\n" +
@@ -413,7 +457,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private val gradientSubtractShader = compileShader(
-            GLES20.GL_FRAGMENT_SHADER, "" +
+            GLES30.GL_FRAGMENT_SHADER, "" +
                     "    precision mediump float;\n" +
                     "    precision mediump sampler2D;\n" +
                     "    varying highp vec2 vUv;\n" +
@@ -434,14 +478,106 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
                     "    }"
         )
 
+        private val config = mapOf(
+            SIM_RESOLUTION to 128,
+            DYE_RESOLUTION to 2014,
+            CAPTURE_RESOLUTION to 512,
+            DENSITY_DISSIPATION to 1,
+            VELOCITY_DISSIPATION to 0.2f,
+            PRESSURE to 0.8f,
+            PRESSURE_ITERATIONS to 20,
+            CURL to 30,
+            SPLAT_RADIUS to 0.25f,
+            SPLAT_FORCE to 6000,
+            SHADING to true,
+            COLORFUL to true,
+            COLOR_UPDATE_SPEED to 10,
+            PAUSED to false,
+            BACK_COLOR to Color(),
+            TRANSPARENT to false,
+            BLOOM to true,
+            BLOOM_ITERATIONS to 8,
+            BLOOM_RESOLUTION to 256,
+            BLOOM_INTENSITY to 0.8f,
+            BLOOM_THRESHOLD to 0.6f,
+            BLOOM_SOFT_KNEE to 0.7f,
+            SUNRAYS to true,
+            SUNRAYS_RESOLUTION to 196,
+            SUNRAYS_WEIGHT to 1.0f
+        )
+
+        private lateinit var ext: GLContextExt
+
+        private lateinit var blurProgram: Program
+        private lateinit var copyProgram: Program
+        private lateinit var clearProgram: Program
+        private lateinit var colorProgram: Program
+        private lateinit var checkerboardProgram: Program
+        private lateinit var bloomPrefilterProgram: Program
+        private lateinit var bloomBlurProgram: Program
+        private lateinit var bloomFinalProgram: Program
+        private lateinit var sunraysMaskProgram: Program
+        private lateinit var sunraysProgram: Program
+        private lateinit var splatProgram: Program
+        private lateinit var advectionProgram: Program
+        private lateinit var divergenceProgram: Program
+        private lateinit var curlProgram: Program
+        private lateinit var vorticityProgram: Program
+        private lateinit var pressureProgram: Program
+        private lateinit var gradienSubtractProgram: Program
+
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         }
 
         override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+            GLES30.glViewport(0, 0, width, height)
         }
 
         override fun onDrawFrame(gl: GL10?) {
-            GLES20.glClearColor(0f, 0f, 0f, 1f)
+            GLES30.glClearColor(0f, 0f, 0f, 1f)
+
+            if (!::ext.isInitialized) {
+                ext = getGLContextExt()
+            }
+            initFrameBuffers()
+        }
+
+        private fun getGLContextExt(): GLContextExt {
+            val halfFloatTexType = GLES30.GL_HALF_FLOAT
+            val formatRGBA =
+                getSupportedFormat(GLES30.GL_RGBA16F, GLES30.GL_RGBA, GLES30.GL_HALF_FLOAT)
+            val formatRG =
+                getSupportedFormat(GLES30.GL_RGB16F, GLES30.GL_RGBA, GLES30.GL_HALF_FLOAT)
+            val formatR =
+                getSupportedFormat(GLES30.GL_R16F, GLES30.GL_RGBA, GLES30.GL_HALF_FLOAT)
+
+            val supportLinearFiltering = true
+
+            return GLContextExt(
+                formatRGBA,
+                formatRG,
+                formatR,
+                halfFloatTexType,
+                supportLinearFiltering
+            )
+        }
+
+        private fun initFrameBuffers() {
+            val simRes = getResolution(config[SIM_RESOLUTION] as Int)
+            val dyeRes = getResolution(config[DYE_RESOLUTION] as Int)
+
+            val texType = ext.halfFloatTexType
+            val rgba = ext.formatRGBA
+            val rg = ext.formatRG
+            val r = ext.formatR
+            val filtering = if (ext.supportLinearFiltering) GLES30.GL_LINEAR else GLES30.GL_NEAREST
+
+            GLES30.glDisable(GLES30.GL_BLEND)
+            TODO("initFrameBuffers")
+        }
+
+        private fun getResolution(resolution: Int) {
+            TODO("getResolution")
         }
 
         private fun createFBO(
@@ -453,23 +589,23 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             param: Int
         ): FBO {
             val textures: IntBuffer = IntBuffer.allocate(1)
-            GLES20.glGenTextures(1, textures)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[0])
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, param)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, param)
-            GLES20.glTexParameteri(
-                GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_WRAP_S,
-                GLES20.GL_CLAMP_TO_EDGE
+            GLES30.glGenTextures(1, textures)
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textures[0])
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, param)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, param)
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_S,
+                GLES30.GL_CLAMP_TO_EDGE
             )
-            GLES20.glTexParameteri(
-                GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_WRAP_T,
-                GLES20.GL_CLAMP_TO_EDGE
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_T,
+                GLES30.GL_CLAMP_TO_EDGE
             )
-            GLES20.glTexImage2D(
-                GLES20.GL_TEXTURE_2D,
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D,
                 0,
                 internalFormat,
                 w,
@@ -481,17 +617,17 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             )
 
             val fbo = IntBuffer.allocate(1)
-            GLES20.glGenFramebuffers(1, fbo)
-            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0])
-            GLES20.glFramebufferTexture2D(
-                GLES20.GL_FRAMEBUFFER,
-                GLES20.GL_COLOR_ATTACHMENT0,
-                GLES20.GL_TEXTURE_2D,
+            GLES30.glGenFramebuffers(1, fbo)
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo[0])
+            GLES30.glFramebufferTexture2D(
+                GLES30.GL_FRAMEBUFFER,
+                GLES30.GL_COLOR_ATTACHMENT0,
+                GLES30.GL_TEXTURE_2D,
                 textures[0],
                 0
             )
-            GLES20.glViewport(0, 0, w, h)
-            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            GLES30.glViewport(0, 0, w, h)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
             val texelSizeX = 1.0f / w
             val texelSizeY = 1.0f / h
@@ -527,30 +663,30 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             type: Int
         ): Boolean {
             val textures = IntBuffer.allocate(1)
-            GLES20.glGenTextures(1, textures)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[0])
-            GLES20.glTexParameteri(
-                GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_MIN_FILTER,
-                GLES20.GL_NEAREST
+            GLES30.glGenTextures(1, textures)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textures[0])
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_MIN_FILTER,
+                GLES30.GL_NEAREST
             )
-            GLES20.glTexParameteri(
-                GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_MAG_FILTER,
-                GLES20.GL_NEAREST
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_MAG_FILTER,
+                GLES30.GL_NEAREST
             )
-            GLES20.glTexParameteri(
-                GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_WRAP_S,
-                GLES20.GL_CLAMP_TO_EDGE
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_S,
+                GLES30.GL_CLAMP_TO_EDGE
             )
-            GLES20.glTexParameteri(
-                GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_WRAP_T,
-                GLES20.GL_CLAMP_TO_EDGE
+            GLES30.glTexParameteri(
+                GLES30.GL_TEXTURE_2D,
+                GLES30.GL_TEXTURE_WRAP_T,
+                GLES30.GL_CLAMP_TO_EDGE
             )
-            GLES20.glTexImage2D(
-                GLES20.GL_TEXTURE_2D,
+            GLES30.glTexImage2D(
+                GLES30.GL_TEXTURE_2D,
                 0,
                 internalFormat,
                 4,
@@ -563,30 +699,30 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
             // init: https://stackoverflow.com/questions/42455918/opengl-does-not-render-to-screen-by-calling-glbindframebuffergl-framebuffer-0
             val fbo = IntBuffer.allocate(1)
-            GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, fbo)
-            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0])
-            GLES20.glFramebufferTexture2D(
-                GLES20.GL_FRAMEBUFFER,
-                GLES20.GL_COLOR_ATTACHMENT0,
-                GLES20.GL_TEXTURE_2D,
+            GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, fbo)
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo[0])
+            GLES30.glFramebufferTexture2D(
+                GLES30.GL_FRAMEBUFFER,
+                GLES30.GL_COLOR_ATTACHMENT0,
+                GLES30.GL_TEXTURE_2D,
                 textures[0],
                 0
             )
 
-            val status = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER)
-            return status == GLES20.GL_FRAMEBUFFER_COMPLETE
+            val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+            return status == GLES30.GL_FRAMEBUFFER_COMPLETE
         }
 
         private fun compileShader(type: Int, source: String): Int {
-            val shader = GLES20.glCreateShader(type);
-            GLES20.glShaderSource(shader, source);
-            GLES20.glCompileShader(shader);
+            val shader = GLES30.glCreateShader(type);
+            GLES30.glShaderSource(shader, source);
+            GLES30.glCompileShader(shader);
 
             val success: IntBuffer = IntBuffer.allocate(1)
-            GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, success)
+            GLES30.glGetShaderiv(shader, GLES30.GL_COMPILE_STATUS, success)
 
             if (0 == success[0]) {
-                e(GLES20.glGetShaderInfoLog(shader))
+                e(GLES30.glGetShaderInfoLog(shader))
             }
 
             return shader;
