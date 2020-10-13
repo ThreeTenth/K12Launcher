@@ -77,14 +77,58 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
     }
 
     inner class Program(vertexShader: Int, fragmentShader: Int) {
-        private val program: Int = createProgram(vertexShader, fragmentShader)
+        private val program = createProgram(vertexShader, fragmentShader)
+        private val uniforms = getUniforms(program)
 
         fun bind() {
             GLES30.glUseProgram(program)
         }
     }
 
-    private fun createProgram(vertexShader: Int, fragmentShader: Int) : Int {
+    inner class Material(val vertexShader: Int, val fragmentShaderSource: String) {
+        private var programs = emptyMap<Int, Int>()
+        private var activeProgram: Int = -1
+        private lateinit var uniforms: MutableMap<String, Int>
+
+        fun setKeywords(keywords: List<String>) {
+            var hash = 0
+            for (i in 0..keywords.size) {
+                hash += hashcode(keywords[i])
+            }
+
+            val program: Int
+            if (programs.containsKey(hash)) {
+                program = programs[hash] ?: error("")
+            } else {
+                val fragmentShader =
+                    compileShader(GLES30.GL_FRAGMENT_SHADER, fragmentShaderSource, keywords)
+                program = createProgram(vertexShader, fragmentShader)
+
+                programs = programs + (hash to program)
+            }
+
+            if (program == activeProgram) return
+
+            uniforms = getUniforms(program)
+            activeProgram = program
+        }
+    }
+
+    private fun hashcode(s: String): Int {
+        if (s.isEmpty()) return 0
+
+        var hash = 0
+
+        for (i in 0..s.length) {
+            val c: Char = s[i]
+            hash = ((hash.shr(5)) - hash).plus(c.toInt())
+            hash = hash.or(0)
+        }
+
+        return hash
+    }
+
+    private fun createProgram(vertexShader: Int, fragmentShader: Int): Int {
         val program: Int = GLES30.glCreateProgram()
         GLES30.glAttachShader(program, vertexShader)
         GLES30.glAttachShader(program, fragmentShader)
@@ -93,10 +137,46 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         return program
     }
 
-    private fun getUniforms(program: Int) {
-//        var uniforms = listOf(0)
-//        var count: Int
-//        val uniformCout = GLES30.glGetProgramiv(program, GLES30.GL_ACTIVE_UNIFORMS, count)
+    private fun getUniforms(program: Int): MutableMap<String, Int> {
+        val uniforms: MutableMap<String, Int> = mutableMapOf()
+        val count = IntBuffer.allocate(1)
+        GLES30.glGetProgramiv(program, GLES30.GL_ACTIVE_UNIFORMS, count)
+
+        for (i in 0..count[0]) {
+            val uniformName = GLES30.glGetActiveUniform(program, i, count, null)
+            uniforms[uniformName] = GLES30.glGetUniformLocation(program, uniformName)
+        }
+
+        return uniforms
+    }
+
+    private fun compileShader(type: Int, source: String, keywords: List<String>): Int {
+        return compileShader(type, addKeywords(source, keywords))
+    }
+
+    private fun addKeywords(source: String, keywords: List<String>): String {
+        var keywordsString = ""
+
+        for (key in keywords) {
+            keywordsString += "#define $key\n"
+        }
+
+        return keywordsString + source
+    }
+
+    private fun compileShader(type: Int, source: String): Int {
+        val shader = GLES30.glCreateShader(type)
+        GLES30.glShaderSource(shader, source)
+        GLES30.glCompileShader(shader)
+
+        val success: IntBuffer = IntBuffer.allocate(1)
+        GLES30.glGetShaderiv(shader, GLES30.GL_COMPILE_STATUS, success)
+
+        if (0 == success[0]) {
+            e(GLES30.glGetShaderInfoLog(shader))
+        }
+
+        return shader
     }
 
     inner class FluidSimulationRenderer() : Renderer {
@@ -202,7 +282,58 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
                     "    }"
         )
 
-//        private val displayShaderSource;
+        private val displayShaderSource = "" +
+                "    precision highp float;\n" +
+                "    precision highp sampler2D;\n" +
+                "    varying vec2 vUv;\n" +
+                "    varying vec2 vL;\n" +
+                "    varying vec2 vR;\n" +
+                "    varying vec2 vT;\n" +
+                "    varying vec2 vB;\n" +
+                "    uniform sampler2D uTexture;\n" +
+                "    uniform sampler2D uBloom;\n" +
+                "    uniform sampler2D uSunrays;\n" +
+                "    uniform sampler2D uDithering;\n" +
+                "    uniform vec2 ditherScale;\n" +
+                "    uniform vec2 texelSize;\n" +
+                "    vec3 linearToGamma (vec3 color) {\n" +
+                "        color = max(color, vec3(0));\n" +
+                "        return max(1.055 * pow(color, vec3(0.416666667)) - 0.055, vec3(0));\n" +
+                "    }\n" +
+                "    void main () {\n" +
+                "        vec3 c = texture2D(uTexture, vUv).rgb;\n" +
+                "    #ifdef SHADING\n" +
+                "        vec3 lc = texture2D(uTexture, vL).rgb;\n" +
+                "        vec3 rc = texture2D(uTexture, vR).rgb;\n" +
+                "        vec3 tc = texture2D(uTexture, vT).rgb;\n" +
+                "        vec3 bc = texture2D(uTexture, vB).rgb;\n" +
+                "        float dx = length(rc) - length(lc);\n" +
+                "        float dy = length(tc) - length(bc);\n" +
+                "        vec3 n = normalize(vec3(dx, dy, length(texelSize)));\n" +
+                "        vec3 l = vec3(0.0, 0.0, 1.0);\n" +
+                "        float diffuse = clamp(dot(n, l) + 0.7, 0.7, 1.0);\n" +
+                "        c *= diffuse;\n" +
+                "    #endif\n" +
+                "    #ifdef BLOOM\n" +
+                "        vec3 bloom = texture2D(uBloom, vUv).rgb;\n" +
+                "    #endif\n" +
+                "    #ifdef SUNRAYS\n" +
+                "        float sunrays = texture2D(uSunrays, vUv).r;\n" +
+                "        c *= sunrays;\n" +
+                "    #ifdef BLOOM\n" +
+                "        bloom *= sunrays;\n" +
+                "    #endif\n" +
+                "    #endif\n" +
+                "    #ifdef BLOOM\n" +
+                "        float noise = texture2D(uDithering, vUv * ditherScale).r;\n" +
+                "        noise = noise * 2.0 - 1.0;\n" +
+                "        bloom += noise / 255.0;\n" +
+                "        bloom = linearToGamma(bloom);\n" +
+                "        c += bloom;\n" +
+                "    #endif\n" +
+                "        float a = max(c.r, max(c.g, c.b));\n" +
+                "        gl_FragColor = vec4(c, a);\n" +
+                "    }"
 
         private val bloomPrefilterShader = compileShader(
             GLES30.GL_FRAGMENT_SHADER, "" +
@@ -526,6 +657,8 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         private lateinit var pressureProgram: Program
         private lateinit var gradienSubtractProgram: Program
 
+        private lateinit var displayMaterial: Material
+
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         }
 
@@ -538,8 +671,12 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
             if (!::ext.isInitialized) {
                 ext = getGLContextExt()
+                initProgram()
             }
+            updateKeywords()
             initFrameBuffers()
+            multipleSplats()
+            update()
         }
 
         private fun getGLContextExt(): GLContextExt {
@@ -560,6 +697,44 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
                 halfFloatTexType,
                 supportLinearFiltering
             )
+        }
+
+        private fun initProgram() {
+            blurProgram = Program(blurVertexShader, blurShader)
+            copyProgram = Program(baseVertexShader, copyShader)
+            clearProgram = Program(baseVertexShader, clearShader)
+            colorProgram = Program(baseVertexShader, colorShader)
+            checkerboardProgram = Program(baseVertexShader, checkerboardShader)
+            bloomPrefilterProgram = Program(baseVertexShader, bloomPrefilterShader)
+            bloomBlurProgram = Program(baseVertexShader, bloomBlurShader)
+            bloomFinalProgram = Program(baseVertexShader, bloomFinalShader)
+            sunraysMaskProgram = Program(baseVertexShader, sunraysMaskShader)
+            sunraysProgram = Program(baseVertexShader, sunraysShader)
+            splatProgram = Program(baseVertexShader, splatShader)
+            advectionProgram = Program(baseVertexShader, advectionShader)
+            divergenceProgram = Program(baseVertexShader, divergenceShader)
+            curlProgram = Program(baseVertexShader, curlShader)
+            vorticityProgram = Program(baseVertexShader, vorticityShader)
+            pressureProgram = Program(baseVertexShader, pressureShader)
+            gradienSubtractProgram = Program(baseVertexShader, gradientSubtractShader)
+
+            displayMaterial = Material(baseVertexShader, displayShaderSource)
+        }
+
+        private fun updateKeywords() {
+            val displayKeywords = emptyList<String>().toMutableList()
+            if (config[SHADING] as Boolean) displayKeywords.add("SHADING")
+            if (config[BLOOM] as Boolean) displayKeywords.add("BLOOM")
+            if (config[SUNRAYS] as Boolean) displayKeywords.add("SUNRAYS")
+            displayMaterial.setKeywords(displayKeywords)
+        }
+
+        private fun multipleSplats() {
+            TODO("multipleSplats")
+        }
+
+        private fun update() {
+            TODO("update")
         }
 
         private fun initFrameBuffers() {
@@ -712,20 +887,5 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
             return status == GLES30.GL_FRAMEBUFFER_COMPLETE
         }
-
-        private fun compileShader(type: Int, source: String): Int {
-            val shader = GLES30.glCreateShader(type);
-            GLES30.glShaderSource(shader, source);
-            GLES30.glCompileShader(shader);
-
-            val success: IntBuffer = IntBuffer.allocate(1)
-            GLES30.glGetShaderiv(shader, GLES30.GL_COMPILE_STATUS, success)
-
-            if (0 == success[0]) {
-                e(GLES30.glGetShaderInfoLog(shader))
-            }
-
-            return shader;
-        };
     }
 }
