@@ -7,10 +7,13 @@ import android.opengl.GLSurfaceView
 import android.util.AttributeSet
 import android.util.Log
 import android.util.Size
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.IntBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 const val SIM_RESOLUTION = "SIM_RESOLUTION"
 const val DYE_RESOLUTION = "DYE_RESOLUTION"
@@ -79,10 +82,10 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
     }
 
     data class DoubleFBO(
-        val width: Int,
-        val height: Int,
-        val texelSizeX: Float,
-        val texelSizeY: Float,
+        var width: Int,
+        var height: Int,
+        var texelSizeX: Float,
+        var texelSizeY: Float,
         var fbo1: FBO,
         var fbo2: FBO
     ) {
@@ -96,9 +99,13 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
     }
 
+    data class Colour(var r: Float, var g: Float, var b: Float)
+
     inner class Program(vertexShader: Int, fragmentShader: Int) {
         private val program = createProgram(vertexShader, fragmentShader)
-        private val uniforms = getUniforms(program)
+
+        var uniforms = getUniforms(program)
+            private set
 
         fun bind() {
             GLES30.glUseProgram(program)
@@ -112,8 +119,8 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
         fun setKeywords(keywords: List<String>) {
             var hash = 0
-            for (i in 0..keywords.size) {
-                hash += hashcode(keywords[i])
+            for (element in keywords) {
+                hash += hashcode(element)
             }
 
             val program: Int
@@ -203,8 +210,47 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         return DoubleFBO(w, h, fbo1.texelSizeX, fbo1.texelSizeY, fbo1, fbo2)
     }
 
-    private fun resizeDoubleFBO(target: DoubleFBO, w: Int, h: Int, internalFormat: Int, format: Int, type: Int, param: Int): DoubleFBO {
-        TODO("resizeDoubleFBO")
+    private fun resizeFBO(
+        target: FBO,
+        w: Int,
+        h: Int,
+        internalFormat: Int,
+        format: Int,
+        type: Int,
+        param: Int
+    ): FBO {
+        val newFBO = createFBO(w, h, internalFormat, format, type, param)
+        renderer.copyProgram.bind()
+        renderer.copyProgram.uniforms["uTexture"]?.let {
+            GLES30.glUniform1i(
+                it,
+                target.attach(0)
+            )
+        }
+        blit(newFBO)
+
+        return newFBO
+    }
+
+    private fun resizeDoubleFBO(
+        target: DoubleFBO,
+        w: Int,
+        h: Int,
+        internalFormat: Int,
+        format: Int,
+        type: Int,
+        param: Int
+    ): DoubleFBO {
+        if (target.width == w && target.height == h) {
+            return target
+        }
+
+        target.read = resizeFBO(target.read, w, h, internalFormat, format, type, param)
+        target.write = createFBO(w, h, internalFormat, format, type, param)
+        target.width = w
+        target.height = h
+        target.texelSizeX = 1.0f / w
+        target.texelSizeY = 1.0f / h
 
         return target
     }
@@ -223,7 +269,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         val count = IntBuffer.allocate(1)
         GLES30.glGetProgramiv(program, GLES30.GL_ACTIVE_UNIFORMS, count)
 
-        for (i in 0..count[0]) {
+        for (i in 0 until count[0]) {
             val uniformName = GLES30.glGetActiveUniform(program, i, count, null)
             uniforms[uniformName] = GLES30.glGetUniformLocation(program, uniformName)
         }
@@ -260,13 +306,59 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         return shader
     }
 
+    private fun blit(target: FBO?) {
+        val vertexes = floatArrayOf(-1f, -1f, -1f, 1f, 1f, 1f, 1f, -1f)
+        val vertexBuffer = ByteBuffer.allocate(vertexes.size * 4) // float have 4 byte
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+        vertexBuffer.put(vertexes).position(0)
+
+        val boIds = IntBuffer.allocate(2)
+        GLES30.glGenBuffers(2, boIds)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, boIds[0])
+        GLES30.glBufferData(
+            GLES30.GL_ARRAY_BUFFER,
+            vertexes.size,
+            vertexBuffer,
+            GLES30.GL_STATIC_DRAW
+        )
+
+        val elements = shortArrayOf(0, 1, 2, 0, 2, 3)
+        val elementBuffer = ByteBuffer.allocate(elements.size * 2) // short have 2 byte
+            .order(ByteOrder.nativeOrder())
+            .asShortBuffer()
+        elementBuffer.put(elements).position(0)
+
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, boIds[1])
+        GLES30.glBufferData(
+            GLES30.GL_ELEMENT_ARRAY_BUFFER,
+            elements.size,
+            elementBuffer,
+            GLES30.GL_STATIC_DRAW
+        )
+
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+        GLES30.glEnableVertexAttribArray(0)
+
+        if (null == target) {
+          GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+        } else {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, target.fbo)
+        }
+
+//        GLES30.glClearColor(0.0f, 0.0f, 0.0f, 0.0f)
+//        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, 6, GLES30.GL_UNSIGNED_SHORT, 0)
+    }
+
     private fun hashcode(s: String): Int {
         if (s.isEmpty()) return 0
 
         var hash = 0
 
-        for (i in 0..s.length) {
-            val c: Char = s[i]
+        for (element in s) {
+            val c: Char = element
             hash = ((hash.shr(5)) - hash).plus(c.toInt())
             hash = hash.or(0)
         }
@@ -274,7 +366,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         return hash
     }
 
-    inner class FluidSimulationRenderer() : Renderer {
+    inner class FluidSimulationRenderer : Renderer {
 
         private val baseVertexShader = compileShader(
             GLES30.GL_VERTEX_SHADER, "" +
@@ -734,8 +826,8 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
         private lateinit var ext: GLContextExt
 
+        lateinit var copyProgram: Program
         private lateinit var blurProgram: Program
-        private lateinit var copyProgram: Program
         private lateinit var clearProgram: Program
         private lateinit var colorProgram: Program
         private lateinit var checkerboardProgram: Program
@@ -784,7 +876,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             }
             updateKeywords()
             initFrameBuffers()
-            multipleSplats()
+            multipleSplats(Random.nextInt() * 20 + 5)
             update()
         }
 
@@ -851,24 +943,93 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             GLES30.glDisable(GLES30.GL_BLEND)
 
             if (!::dye.isInitialized) {
-                dye = createDoubleFBO(dyeRes.width, dyeRes.height, rgba.internalFormat, rgba.format, texType, filtering)
+                dye = createDoubleFBO(
+                    dyeRes.width,
+                    dyeRes.height,
+                    rgba.internalFormat,
+                    rgba.format,
+                    texType,
+                    filtering
+                )
             } else {
-                dye = resizeDoubleFBO(dye, dyeRes.width, dyeRes.height, rgba.internalFormat, rgba.format, texType, filtering)
+                dye = resizeDoubleFBO(
+                    dye,
+                    dyeRes.width,
+                    dyeRes.height,
+                    rgba.internalFormat,
+                    rgba.format,
+                    texType,
+                    filtering
+                )
             }
 
             if (!::velocity.isInitialized) {
-                velocity = createDoubleFBO(simRes.width, simRes.height, rg.internalFormat, rg.format, texType, filtering)
+                velocity = createDoubleFBO(
+                    simRes.width,
+                    simRes.height,
+                    rg.internalFormat,
+                    rg.format,
+                    texType,
+                    filtering
+                )
             } else {
-                velocity = resizeDoubleFBO(velocity, simRes.width, simRes.height, rg.internalFormat, rg.format, texType, filtering)
+                velocity = resizeDoubleFBO(
+                    velocity,
+                    simRes.width,
+                    simRes.height,
+                    rg.internalFormat,
+                    rg.format,
+                    texType,
+                    filtering
+                )
             }
 
-            divergence = createFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, GLES30.GL_NEAREST)
-            curl = createFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, GLES30.GL_NEAREST)
-            pressure = createDoubleFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, GLES30.GL_NEAREST)
+            divergence = createFBO(
+                simRes.width,
+                simRes.height,
+                r.internalFormat,
+                r.format,
+                texType,
+                GLES30.GL_NEAREST
+            )
+            curl = createFBO(
+                simRes.width,
+                simRes.height,
+                r.internalFormat,
+                r.format,
+                texType,
+                GLES30.GL_NEAREST
+            )
+            pressure = createDoubleFBO(
+                simRes.width,
+                simRes.height,
+                r.internalFormat,
+                r.format,
+                texType,
+                GLES30.GL_NEAREST
+            )
         }
 
-        private fun multipleSplats() {
-            TODO("multipleSplats")
+        private fun multipleSplats(amount: Int) {
+            for (i in 0 until amount) {
+                val color = generateColor()
+                color.r *= 10.0f
+                color.g *= 10.0f
+                color.b *= 10.0f
+                val x = Random.nextInt()
+                val y = Random.nextInt()
+                val dx = 1000 * (Random.nextFloat() - 0.5f)
+                val dy = 1000 * (Random.nextFloat() - 0.5f)
+                splat(x, y, dx, dy, color)
+            }
+        }
+
+        private fun splat(x: Int, y: Int, dx: Float, dy: Float, color: Colour) {
+            TODO("splat")
+        }
+
+        private fun generateColor(): Colour {
+            TODO("generateColor")
         }
 
         private fun update() {
