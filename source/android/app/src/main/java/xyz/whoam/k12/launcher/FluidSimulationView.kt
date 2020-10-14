@@ -6,9 +6,11 @@ import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.util.AttributeSet
 import android.util.Log
+import android.util.Size
 import java.nio.IntBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+import kotlin.math.roundToInt
 
 const val SIM_RESOLUTION = "SIM_RESOLUTION"
 const val DYE_RESOLUTION = "DYE_RESOLUTION"
@@ -54,9 +56,9 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
     data class SupportFormat(val internalFormat: Int, val format: Int)
 
     data class GLContextExt(
-        val formatRGBA: SupportFormat?,
-        val formatRG: SupportFormat?,
-        val formatR: SupportFormat?,
+        val formatRGBA: SupportFormat,
+        val formatRG: SupportFormat,
+        val formatR: SupportFormat,
         val halfFloatTexType: Int,
         val supportLinearFiltering: Boolean
     )
@@ -76,6 +78,24 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
     }
 
+    data class DoubleFBO(
+        val width: Int,
+        val height: Int,
+        val texelSizeX: Float,
+        val texelSizeY: Float,
+        var fbo1: FBO,
+        var fbo2: FBO
+    ) {
+        var read = fbo1
+        var write = fbo2
+
+        fun swap() {
+            val temp = fbo1
+            fbo1 = fbo2
+            fbo2 = temp
+        }
+    }
+
     inner class Program(vertexShader: Int, fragmentShader: Int) {
         private val program = createProgram(vertexShader, fragmentShader)
         private val uniforms = getUniforms(program)
@@ -85,7 +105,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
     }
 
-    inner class Material(val vertexShader: Int, val fragmentShaderSource: String) {
+    inner class Material(private val vertexShader: Int, private val fragmentShaderSource: String) {
         private var programs = emptyMap<Int, Int>()
         private var activeProgram: Int = -1
         private lateinit var uniforms: MutableMap<String, Int>
@@ -114,18 +134,79 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
     }
 
-    private fun hashcode(s: String): Int {
-        if (s.isEmpty()) return 0
+    private fun createFBO(
+        w: Int,
+        h: Int,
+        internalFormat: Int,
+        format: Int,
+        type: Int,
+        param: Int
+    ): FBO {
+        val textures: IntBuffer = IntBuffer.allocate(1)
+        GLES30.glGenTextures(1, textures)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textures[0])
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, param)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, param)
+        GLES30.glTexParameteri(
+            GLES30.GL_TEXTURE_2D,
+            GLES30.GL_TEXTURE_WRAP_S,
+            GLES30.GL_CLAMP_TO_EDGE
+        )
+        GLES30.glTexParameteri(
+            GLES30.GL_TEXTURE_2D,
+            GLES30.GL_TEXTURE_WRAP_T,
+            GLES30.GL_CLAMP_TO_EDGE
+        )
+        GLES30.glTexImage2D(
+            GLES30.GL_TEXTURE_2D,
+            0,
+            internalFormat,
+            w,
+            h,
+            0,
+            format,
+            type,
+            null
+        )
 
-        var hash = 0
+        val fbo = IntBuffer.allocate(1)
+        GLES30.glGenFramebuffers(1, fbo)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo[0])
+        GLES30.glFramebufferTexture2D(
+            GLES30.GL_FRAMEBUFFER,
+            GLES30.GL_COLOR_ATTACHMENT0,
+            GLES30.GL_TEXTURE_2D,
+            textures[0],
+            0
+        )
+        GLES30.glViewport(0, 0, w, h)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
-        for (i in 0..s.length) {
-            val c: Char = s[i]
-            hash = ((hash.shr(5)) - hash).plus(c.toInt())
-            hash = hash.or(0)
-        }
+        val texelSizeX = 1.0f / w
+        val texelSizeY = 1.0f / h
 
-        return hash
+        return FBO(textures[0], fbo[0], w, h, texelSizeX, texelSizeY)
+    }
+
+    private fun createDoubleFBO(
+        w: Int,
+        h: Int,
+        internalFormat: Int,
+        format: Int,
+        type: Int,
+        param: Int
+    ): DoubleFBO {
+        val fbo1 = createFBO(w, h, internalFormat, format, type, param)
+        val fbo2 = createFBO(w, h, internalFormat, format, type, param)
+
+        return DoubleFBO(w, h, fbo1.texelSizeX, fbo1.texelSizeY, fbo1, fbo2)
+    }
+
+    private fun resizeDoubleFBO(target: DoubleFBO, w: Int, h: Int, internalFormat: Int, format: Int, type: Int, param: Int): DoubleFBO {
+        TODO("resizeDoubleFBO")
+
+        return target
     }
 
     private fun createProgram(vertexShader: Int, fragmentShader: Int): Int {
@@ -177,6 +258,20 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
 
         return shader
+    }
+
+    private fun hashcode(s: String): Int {
+        if (s.isEmpty()) return 0
+
+        var hash = 0
+
+        for (i in 0..s.length) {
+            val c: Char = s[i]
+            hash = ((hash.shr(5)) - hash).plus(c.toInt())
+            hash = hash.or(0)
+        }
+
+        return hash
     }
 
     inner class FluidSimulationRenderer() : Renderer {
@@ -659,11 +754,25 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
         private lateinit var displayMaterial: Material
 
+        private lateinit var dye: DoubleFBO
+        private lateinit var velocity: DoubleFBO
+        private lateinit var divergence: FBO
+        private lateinit var curl: FBO
+        private lateinit var pressure: DoubleFBO
+        private lateinit var bloom: FBO
+        private val bloomFramebuffers = listOf<FBO>()
+        private lateinit var sunrays: FBO
+        private lateinit var sunraysTemp: FBO
+
+        private lateinit var surfaceSize: Size
+
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         }
 
         override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
             GLES30.glViewport(0, 0, width, height)
+
+            surfaceSize = Size(width, height)
         }
 
         override fun onDrawFrame(gl: GL10?) {
@@ -729,14 +838,6 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             displayMaterial.setKeywords(displayKeywords)
         }
 
-        private fun multipleSplats() {
-            TODO("multipleSplats")
-        }
-
-        private fun update() {
-            TODO("update")
-        }
-
         private fun initFrameBuffers() {
             val simRes = getResolution(config[SIM_RESOLUTION] as Int)
             val dyeRes = getResolution(config[DYE_RESOLUTION] as Int)
@@ -748,73 +849,53 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             val filtering = if (ext.supportLinearFiltering) GLES30.GL_LINEAR else GLES30.GL_NEAREST
 
             GLES30.glDisable(GLES30.GL_BLEND)
-            TODO("initFrameBuffers")
+
+            if (!::dye.isInitialized) {
+                dye = createDoubleFBO(dyeRes.width, dyeRes.height, rgba.internalFormat, rgba.format, texType, filtering)
+            } else {
+                dye = resizeDoubleFBO(dye, dyeRes.width, dyeRes.height, rgba.internalFormat, rgba.format, texType, filtering)
+            }
+
+            if (!::velocity.isInitialized) {
+                velocity = createDoubleFBO(simRes.width, simRes.height, rg.internalFormat, rg.format, texType, filtering)
+            } else {
+                velocity = resizeDoubleFBO(velocity, simRes.width, simRes.height, rg.internalFormat, rg.format, texType, filtering)
+            }
+
+            divergence = createFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, GLES30.GL_NEAREST)
+            curl = createFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, GLES30.GL_NEAREST)
+            pressure = createDoubleFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, GLES30.GL_NEAREST)
         }
 
-        private fun getResolution(resolution: Int) {
-            TODO("getResolution")
+        private fun multipleSplats() {
+            TODO("multipleSplats")
         }
 
-        private fun createFBO(
-            w: Int,
-            h: Int,
-            internalFormat: Int,
-            format: Int,
-            type: Int,
-            param: Int
-        ): FBO {
-            val textures: IntBuffer = IntBuffer.allocate(1)
-            GLES30.glGenTextures(1, textures)
-            GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textures[0])
-            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, param)
-            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, param)
-            GLES30.glTexParameteri(
-                GLES30.GL_TEXTURE_2D,
-                GLES30.GL_TEXTURE_WRAP_S,
-                GLES30.GL_CLAMP_TO_EDGE
-            )
-            GLES30.glTexParameteri(
-                GLES30.GL_TEXTURE_2D,
-                GLES30.GL_TEXTURE_WRAP_T,
-                GLES30.GL_CLAMP_TO_EDGE
-            )
-            GLES30.glTexImage2D(
-                GLES30.GL_TEXTURE_2D,
-                0,
-                internalFormat,
-                w,
-                h,
-                0,
-                format,
-                type,
-                null
-            )
+        private fun update() {
+            TODO("update")
+        }
 
-            val fbo = IntBuffer.allocate(1)
-            GLES30.glGenFramebuffers(1, fbo)
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo[0])
-            GLES30.glFramebufferTexture2D(
-                GLES30.GL_FRAMEBUFFER,
-                GLES30.GL_COLOR_ATTACHMENT0,
-                GLES30.GL_TEXTURE_2D,
-                textures[0],
-                0
-            )
-            GLES30.glViewport(0, 0, w, h)
-            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+        private fun getResolution(resolution: Int): Size {
+            var aspectRation = surfaceSize.width / surfaceSize.height * 1.0f
 
-            val texelSizeX = 1.0f / w
-            val texelSizeY = 1.0f / h
+            if (aspectRation < 1.0f) {
+                aspectRation = 1.0f / aspectRation
+            }
 
-            return FBO(textures[0], fbo[0], w, h, texelSizeX, texelSizeY)
+            val max = (resolution * aspectRation).roundToInt()
+
+            return if (surfaceSize.width > surfaceSize.height) {
+                Size(max, resolution)
+            } else {
+                Size(resolution, max)
+            }
         }
 
         private fun getSupportedFormat(
             internalFormat: Int,
             format: Int,
             type: Int
-        ): SupportFormat? {
+        ): SupportFormat {
             if (!supportRenderTextureFormat(internalFormat, format, type)) {
                 return when (internalFormat) {
                     GLES30.GL_R16F -> {
@@ -824,7 +905,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
                         getSupportedFormat(GLES30.GL_RGBA16F, GLES30.GL_RGBA, type)
                     }
                     else -> {
-                        null
+                        return SupportFormat(internalFormat, format)
                     }
                 }
             }
