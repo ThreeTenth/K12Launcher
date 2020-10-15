@@ -12,6 +12,7 @@ import java.nio.ByteOrder
 import java.nio.IntBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -341,7 +342,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         GLES30.glEnableVertexAttribArray(0)
 
         if (null == target) {
-          GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         } else {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, target.fbo)
         }
@@ -858,6 +859,9 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
         private lateinit var surfaceSize: Size
 
+        private var lastUpdateTime = System.currentTimeMillis()
+        private var colorUpdateTimer = 0.0f
+
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         }
 
@@ -868,15 +872,13 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
 
         override fun onDrawFrame(gl: GL10?) {
-            GLES30.glClearColor(0f, 0f, 0f, 1f)
-
             if (!::ext.isInitialized) {
                 ext = getGLContextExt()
                 initProgram()
+                updateKeywords()
+                initFramebuffers()
+                multipleSplats(Random.nextInt() * 20 + 5)
             }
-            updateKeywords()
-            initFrameBuffers()
-            multipleSplats(Random.nextInt() * 20 + 5)
             update()
         }
 
@@ -930,7 +932,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             displayMaterial.setKeywords(displayKeywords)
         }
 
-        private fun initFrameBuffers() {
+        private fun initFramebuffers() {
             val simRes = getResolution(config[SIM_RESOLUTION] as Int)
             val dyeRes = getResolution(config[DYE_RESOLUTION] as Int)
 
@@ -1016,24 +1018,47 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
                 color.r *= 10.0f
                 color.g *= 10.0f
                 color.b *= 10.0f
-                val x = Random.nextInt()
-                val y = Random.nextInt()
+                val x = Random.nextFloat()
+                val y = Random.nextFloat()
                 val dx = 1000 * (Random.nextFloat() - 0.5f)
                 val dy = 1000 * (Random.nextFloat() - 0.5f)
                 splat(x, y, dx, dy, color)
             }
         }
 
-        private fun splat(x: Int, y: Int, dx: Float, dy: Float, color: Colour) {
-            TODO("splat")
-        }
-
-        private fun generateColor(): Colour {
-            TODO("generateColor")
-        }
-
         private fun update() {
-            TODO("update")
+            val dt = calcDeltaTime()
+            if (resizeCanvas())
+                initFramebuffers()
+            updateColors(dt)
+            applyInputs()
+            if (!(config[PAUSED] as Boolean))
+                step(dt)
+            render(null)
+        }
+
+        private fun calcDeltaTime(): Double {
+            TODO("calcDeltaTime")
+        }
+
+        private fun resizeCanvas(): Boolean {
+            TODO("resizeCanvas")
+        }
+
+        private fun updateColors(dt: Double) {
+            TODO("updateColors")
+        }
+
+        private fun applyInputs() {
+            TODO("applyInputs")
+        }
+
+        private fun step(dt: Double) {
+            TODO("step")
+        }
+
+        private fun render(target: FBO?) {
+            TODO("render")
         }
 
         private fun getResolution(resolution: Int): Size {
@@ -1050,6 +1075,106 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             } else {
                 Size(resolution, max)
             }
+        }
+
+        private fun splat(x: Float, y: Float, dx: Float, dy: Float, color: Colour) {
+            splatProgram.bind()
+            splatProgram.uniforms["uTarget"]?.let {
+                GLES30.glUniform1i(
+                    it,
+                    velocity.read.attach(0)
+                )
+            }
+            splatProgram.uniforms["aspectRatio"]?.let {
+                GLES30.glUniform1f(
+                    it,
+                    surfaceSize.width / surfaceSize.height * 1.0f
+                )
+            }
+            splatProgram.uniforms["point"]?.let {
+                GLES30.glUniform2f(
+                    it,
+                    x, y
+                )
+            }
+            splatProgram.uniforms["color"]?.let {
+                GLES30.glUniform3f(
+                    it,
+                    dx, dy, 0.0f
+                )
+            }
+            splatProgram.uniforms["radius"]?.let {
+                GLES30.glUniform1f(
+                    it,
+                    correctRadius((config[SPLAT_RADIUS] as Float) / 100.0f)
+                )
+            }
+            blit(velocity.write)
+            velocity.swap()
+            splatProgram.uniforms["uTarget"]?.let {
+                GLES30.glUniform1i(
+                    it,
+                    dye.read.attach(0)
+                )
+            }
+            splatProgram.uniforms["color"]?.let {
+                GLES30.glUniform3f(
+                    it,
+                    color.r, color.g, color.b
+                )
+            }
+            blit(dye.write)
+            dye.swap()
+        }
+
+        private fun correctRadius(f: Float): Float {
+            var radius = f
+            val aspectRatio = surfaceSize.width / surfaceSize.height
+            if (aspectRatio > 1) {
+                radius *= aspectRatio
+            }
+            return radius
+        }
+
+        private fun generateColor(): Colour {
+            val c = HSVtoRGB(Random.nextFloat(), 1.0f, 1.0f)
+            c.r *= 0.15f
+            c.g *= 0.15f
+            c.b *= 0.15f
+
+            return c
+        }
+
+        private fun HSVtoRGB(h: Float, s: Float, v: Float): Colour {
+            val r: Float
+            val g: Float
+            val b: Float
+
+            val i = floor(h * 6).toInt()
+            val f = h * 6 - i
+            val p = v * (1 - s)
+            val q = v * (1 - f * s)
+            val t = v * (1 - (1 - f) * s)
+
+            when (i % 6) {
+                0 -> {
+                    r = v; g = t; b = p; }
+                1 -> {
+                    r = q; g = v; b = p; }
+                2 -> {
+                    r = p; g = v; b = t; }
+                3 -> {
+                    r = p; g = q; b = v; }
+                4 -> {
+                    r = t; g = p; b = v; }
+                5 -> {
+                    r = v; g = p; b = q; }
+                else -> {
+                    r = 0f; g = 0f; b = 0f
+                }
+            }
+
+            return Colour(r, g, b)
         }
 
         private fun getSupportedFormat(
