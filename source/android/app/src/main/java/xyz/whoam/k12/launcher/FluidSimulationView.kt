@@ -102,6 +102,19 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
     data class Colour(var r: Float, var g: Float, var b: Float)
 
+    data class Prototype(
+        var id: Int = -1,
+        var texcoordX: Int = 0,
+        var texcoordY: Int = 0,
+        var prevTexcoordX: Int = 0,
+        var prevTexcoordY: Int = 0,
+        var deltaX: Int = 0,
+        var deltaY: Int = 0,
+        var down: Boolean = false,
+        var moved: Boolean = false,
+        var color: Colour = Colour(30f, 0f, 300f)
+    )
+
     inner class Program(vertexShader: Int, fragmentShader: Int) {
         private val program = createProgram(vertexShader, fragmentShader)
 
@@ -860,7 +873,12 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         private lateinit var surfaceSize: Size
 
         private var lastUpdateTime = System.currentTimeMillis()
-        private var colorUpdateTimer = 0.0f
+        private var colorUpdateTimer = 0.0
+
+        private val pointers = listOf(Prototype())
+        private val splatStack = mutableListOf<Int>()
+
+        private fun <T> MutableList<T>.pop(): T = this.removeAt(this.count() - 1)
 
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         }
@@ -869,6 +887,8 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             GLES30.glViewport(0, 0, width, height)
 
             surfaceSize = Size(width, height)
+
+            TODO("画面大小发生变化时的更新")
         }
 
         override fun onDrawFrame(gl: GL10?) {
@@ -1012,6 +1032,10 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             )
         }
 
+        private fun splatPointer(pointer: Prototype) {
+            TODO("splatPointer")
+        }
+
         private fun multipleSplats(amount: Int) {
             for (i in 0 until amount) {
                 val color = generateColor()
@@ -1038,19 +1062,45 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
 
         private fun calcDeltaTime(): Double {
-            TODO("calcDeltaTime")
+            val now = System.currentTimeMillis()
+            var dt = (now - lastUpdateTime) / 1000.0
+            dt = dt.coerceAtMost(0.016666)
+            lastUpdateTime = now
+            return dt
         }
 
         private fun resizeCanvas(): Boolean {
-            TODO("resizeCanvas")
+            val width = scaleByPixelRatio(surfaceSize.width)
+            val height = scaleByPixelRatio(surfaceSize.height)
+            return if (surfaceSize.width != width || surfaceSize.height != height) {
+                surfaceSize = Size(width, height)
+                true
+            } else false
         }
 
         private fun updateColors(dt: Double) {
-            TODO("updateColors")
+            if (!(config[COLORFUL] as Boolean)) return
+
+            colorUpdateTimer += dt * (config[COLOR_UPDATE_SPEED] as Int)
+            if (colorUpdateTimer >= 1) {
+                colorUpdateTimer = wrap(colorUpdateTimer, 0, 1)
+                for (p in pointers) {
+                    p.color = generateColor()
+                }
+            }
         }
 
         private fun applyInputs() {
-            TODO("applyInputs")
+            if (splatStack.isNotEmpty())
+                multipleSplats(splatStack.pop())
+
+            pointers.forEach {
+                if (it.moved) {
+                    it.moved = false
+                    splatPointer(it)
+                }
+
+            }
         }
 
         private fun step(dt: Double) {
@@ -1175,6 +1225,14 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             }
 
             return Colour(r, g, b)
+        }
+
+        private fun wrap(value: Double, min: Int, max: Int): Double {
+            TODO("wrap")
+        }
+
+        private fun scaleByPixelRatio(input: Int): Int {
+            TODO("scaleByPixelRatio")
         }
 
         private fun getSupportedFormat(
