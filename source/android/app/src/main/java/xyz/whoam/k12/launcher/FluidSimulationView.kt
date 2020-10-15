@@ -1104,7 +1104,68 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
 
         private fun step(dt: Double) {
-            TODO("step")
+            GLES30.glDisable(GLES30.GL_BLEND)
+
+            curlProgram.bind()
+            curlProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(it, velocity.texelSizeX, velocity.texelSizeY) }
+            curlProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(it, velocity.read.attach(0)) }
+            blit(curl)
+
+            vorticityProgram.bind()
+            vorticityProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(it, velocity.texelSizeX, velocity.texelSizeY) }
+            vorticityProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(it, velocity.read.attach(0)) }
+            vorticityProgram.uniforms["uCurl"]?.let { GLES30.glUniform1i(it, curl.attach(0)) }
+            vorticityProgram.uniforms["curl"]?.let { GLES30.glUniform1f(it, config[CURL] as Float) }
+            vorticityProgram.uniforms["dt"]?.let { GLES30.glUniform1f(it, dt.toFloat()) }
+            blit(velocity.write)
+            velocity.swap()
+
+            divergenceProgram.bind()
+            divergenceProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(it, velocity.texelSizeX, velocity.texelSizeY) }
+            divergenceProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(it, velocity.read.attach(0)) }
+            blit(divergence)
+
+            clearProgram.bind()
+            clearProgram.uniforms["texelSize"]?.let { GLES30.glUniform1i(it, pressure.read.attach(0)) }
+            clearProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1f(it, config[PRESSURE] as Float  ) }
+            blit(pressure.write)
+            pressure.swap()
+
+            pressureProgram.bind()
+            pressureProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(it, velocity.texelSizeX, velocity.texelSizeY) }
+            pressureProgram.uniforms["uDivergence"]?.let { GLES30.glUniform1i(it, divergence.attach(0)) }
+            for (i in 0 until (config[PRESSURE_ITERATIONS] as Int)) {
+                pressureProgram.uniforms["uPressure"]?.let { GLES30.glUniform1i(it, pressure.read.attach(1)) }
+                blit(pressure.write)
+                pressure.swap()
+            }
+
+            gradienSubtractProgram.bind()
+            gradienSubtractProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(it, velocity.texelSizeX, velocity.texelSizeY) }
+            gradienSubtractProgram.uniforms["uPressure"]?.let { GLES30.glUniform1i(it, pressure.read.attach(0) ) }
+            gradienSubtractProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(it, pressure.read.attach(1) ) }
+            blit(velocity.write)
+            velocity.swap()
+
+            advectionProgram.bind()
+            advectionProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(it, velocity.texelSizeX, velocity.texelSizeY) }
+            if (!ext.supportLinearFiltering)
+                advectionProgram.uniforms["dyeTexelSize"]?.let { GLES30.glUniform2f(it, velocity.texelSizeX, velocity.texelSizeY) }
+            val velocityId = velocity.read.attach(0)
+            advectionProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(it, velocityId) }
+            advectionProgram.uniforms["uSource"]?.let { GLES30.glUniform1i(it, velocityId) }
+            advectionProgram.uniforms["dt"]?.let { GLES30.glUniform1f(it, dt.toFloat()) }
+            advectionProgram.uniforms["dissipation"]?.let { GLES30.glUniform1f(it, config[VELOCITY_DISSIPATION] as Float) }
+            blit(velocity.write)
+            velocity.swap()
+
+            if (!ext.supportLinearFiltering)
+                advectionProgram.uniforms["dyeTexelSize"]?.let { GLES30.glUniform2f(it, dye.texelSizeX, dye.texelSizeY) }
+            advectionProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(it, velocity.read.attach(0)) }
+            advectionProgram.uniforms["uSource"]?.let { GLES30.glUniform1i(it, dye.read.attach(1)) }
+            advectionProgram.uniforms["dissipation"]?.let { GLES30.glUniform1f(it, config[DENSITY_DISSIPATION] as Float) }
+            blit(dye.write)
+            dye.swap()
         }
 
         private fun render(target: FBO?) {
