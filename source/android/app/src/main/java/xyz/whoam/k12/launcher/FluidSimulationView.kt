@@ -15,6 +15,7 @@ import javax.microedition.khronos.opengles.GL10
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.random.Random
+import xyz.whoam.k12.launcher.BLOOM_THRESHOLD as BLOOM_THRESHOLD1
 
 const val SIM_RESOLUTION = "SIM_RESOLUTION"
 const val DYE_RESOLUTION = "DYE_RESOLUTION"
@@ -831,7 +832,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             BLOOM_ITERATIONS to 8,
             BLOOM_RESOLUTION to 256,
             BLOOM_INTENSITY to 0.8f,
-            BLOOM_THRESHOLD to 0.6f,
+            BLOOM_THRESHOLD1 to 0.6f,
             BLOOM_SOFT_KNEE to 0.7f,
             SUNRAYS to true,
             SUNRAYS_RESOLUTION to 196,
@@ -888,7 +889,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
             surfaceSize = Size(width, height)
 
-            TODO("画面大小发生变化时的更新")
+//            TODO("画面大小发生变化时的更新")
         }
 
         override fun onDrawFrame(gl: GL10?) {
@@ -1033,7 +1034,9 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
 
         private fun splatPointer(pointer: Prototype) {
-            TODO("splatPointer")
+            val dx = pointer.deltaX * (config[SPLAT_FORCE] as Int) * 1.0f
+            val dy = pointer.deltaY * (config[SPLAT_FORCE] as Int) * 1.0f
+            splat(pointer.texcoordX.toFloat(), pointer.texcoordY.toFloat(), dx, dy, pointer.color)
         }
 
         private fun multipleSplats(amount: Int) {
@@ -1241,7 +1244,131 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
 
         private fun render(target: FBO?) {
-            TODO("render")
+            if (config[BLOOM] as Boolean)
+                applyBloom(dye.read, bloom)
+            if (config[SUNRAYS] as Boolean) {
+                applySunrays(dye.read, dye.write, sunrays)
+                blur(sunrays, sunraysTemp, 1)
+            }
+
+            if (target == null || !(config[TRANSPARENT] as Boolean)) {
+                GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+                GLES30.glEnable(GLES30.GL_BLEND)
+            } else {
+                GLES30.glDisable(GLES30.GL_BLEND)
+            }
+        }
+
+        private fun applyBloom(source: FBO, destination: FBO) {
+            if (bloomFramebuffers.size < 2) return
+
+            var last = destination
+
+            GLES30.glDisable(GLES30.GL_BLEND)
+            bloomPrefilterProgram.bind()
+            val knee = (config[BLOOM_THRESHOLD1] as Float) * (config[BLOOM_SOFT_KNEE] as Float) * 0.00001f
+            val curve0 = (config[BLOOM_THRESHOLD1] as Float) - knee
+            val curve1 = knee * 2
+            val curve2 = 0.25f / knee
+            bloomPrefilterProgram.uniforms["curve"]?.let { GLES30.glUniform3f(
+                it,
+                curve0,
+                curve1,
+                curve2
+            ) }
+            bloomPrefilterProgram.uniforms["threshold"]?.let { GLES30.glUniform1f(
+                it,
+                config[BLOOM_THRESHOLD1] as Float
+            ) }
+            bloomPrefilterProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(
+                it,
+                source.attach(0)
+            ) }
+            blit(last)
+
+            bloomBlurProgram.bind()
+            for (dest in bloomFramebuffers) {
+                bloomBlurProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
+                    it,
+                    last.texelSizeX,
+                    last.texelSizeY
+                ) }
+                bloomBlurProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, last.attach(0)) }
+                blit(dest)
+                last = dest
+            }
+
+            GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE)
+            GLES30.glEnable(GLES30.GL_BLEND)
+
+            for (i in bloomFramebuffers.size - 2 downTo 0) {
+                val baseTex = bloomFramebuffers[i]
+                bloomBlurProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
+                    it,
+                    last.texelSizeX,
+                    last.texelSizeY
+                ) }
+                bloomBlurProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, last.attach(0)) }
+                blit(baseTex)
+                last = baseTex
+            }
+
+            GLES30.glDisable(GLES30.GL_BLEND)
+            bloomFinalProgram.bind()
+            bloomPrefilterProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
+                it,
+                last.texelSizeX,
+                last.texelSizeY
+            ) }
+            bloomPrefilterProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, last.attach(0)) }
+            bloomPrefilterProgram.uniforms["intensity"]?.let { GLES30.glUniform1f(
+                it,
+                config[BLOOM_INTENSITY] as Float
+            ) }
+            blit(destination)
+        }
+
+        private fun applySunrays(
+            source: FBO,
+            mask: FBO,
+            destination: FBO
+        ) {
+            GLES30.glDisable(GLES30.GL_BLEND)
+            sunraysMaskProgram.bind()
+            sunraysMaskProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, source.attach(0)) }
+            blit(mask)
+
+            sunraysProgram.bind()
+            sunraysProgram.uniforms["weight"]?.let { GLES30.glUniform1f(
+                it,
+                config[SUNRAYS_WEIGHT] as Float
+            ) }
+            sunraysProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, mask.attach(0)) }
+            blit(destination)
+        }
+
+        private fun blur(
+            target: FBO,
+            temp: FBO,
+            iterations: Int
+        ) {
+            blurProgram.bind()
+            for (i in 0 until iterations) {
+                blurProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
+                    it,
+                    target.texelSizeX,
+                    0.0f
+                ) }
+                blurProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, target.attach(0)) }
+                blit(temp)
+                blurProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
+                    it,
+                    0.0f,
+                    target.texelSizeY
+                ) }
+                blurProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, temp.attach(0)) }
+                blit(target)
+            }
         }
 
         private fun getResolution(resolution: Int): Size {
