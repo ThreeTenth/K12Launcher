@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     >
 
-    <WebView
+    <xyz.whoam.k12.launcher.FluidSimulationView
         android:id="@+id/webview_background"
         android:layout_width="match_parent"
         android:layout_height="match_parent"

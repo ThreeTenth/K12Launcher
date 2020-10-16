@@ -57,9 +57,9 @@ class MainActivity : BaseActivity(), DownloadListener, RequestPermissionResultLi
             }
         }
 
-        val webviewBackground = findViewById<WebView>(R.id.webview_background)
-        webviewBackground.settings.javaScriptEnabled = true
-        webviewBackground.loadUrl("file:///android_asset/index.html")
+//        val webviewBackground = findViewById<WebView>(R.id.webview_background)
+//        webviewBackground.settings.javaScriptEnabled = true
+//        webviewBackground.loadUrl("file:///android_asset/index.html")
 //        getPackageList(this)
     }
 
