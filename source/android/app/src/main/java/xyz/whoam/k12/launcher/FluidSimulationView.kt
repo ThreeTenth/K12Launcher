@@ -2,6 +2,7 @@ package xyz.whoam.k12.launcher
 
 import android.content.Context
 import android.graphics.PointF
+import android.opengl.GLES20
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.util.AttributeSet
@@ -118,6 +119,14 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         var moved: Boolean = false,
         var color: Colour = Colour(30f, 0f, 300f)
     )
+
+    data class Texture(val texture: Int, var width: Int = 1, var height: Int = 1) {
+        fun attach(id: Int): Int {
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + id)
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, texture)
+            return id
+        }
+    }
 
     inner class Program(vertexShader: Int, fragmentShader: Int) {
         private val program: Int = createProgram(vertexShader, fragmentShader)
@@ -287,7 +296,45 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         GLES30.glAttachShader(program, fragmentShader)
         GLES30.glLinkProgram(program)
 
+        val success: IntBuffer = IntBuffer.allocate(1)
+        GLES30.glGetProgramiv(program, GLES20.GL_LINK_STATUS, success)
+        if (0 == success[0]) {
+            throw IllegalArgumentException(
+                "Link OpenGL program has error: " +
+                        GLES20.glGetProgramInfoLog(program)
+            )
+        }
+
+        GLES30.glDeleteShader(vertexShader)
+        GLES30.glDeleteShader(fragmentShader)
+
         return program
+    }
+
+    private fun createTextureAsync(url: String): Texture {
+        @Suppress("EXPERIMENTAL_UNSIGNED_LITERALS")
+        /**
+         * 通过 `ARGB_8888` 颜色模式获取的 Bitmap 大小，每个像素是 4 个字节
+         */
+//        val image = ByteBuffer.wrap(byteArrayOf(-1, -1, -1))
+        val image = ByteBuffer.allocateDirect(3)
+            .order(ByteOrder.nativeOrder())
+        /**
+         * 将 bitmap 拷贝至 image 字节数组中
+         */
+        image.put(byteArrayOf(-1, -1, -1))
+        image.position(0)
+
+        val textures = IntBuffer.allocate(1)
+        GLES30.glGenTextures(1, textures)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textures[0])
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_REPEAT)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_REPEAT)
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGB, 1, 1, 0, GLES30.GL_RGB, GLES30.GL_UNSIGNED_BYTE, image)
+
+        return Texture(textures[0], 1, 1)
     }
 
     private fun getUniforms(program: Int): MutableMap<String, Int> {
@@ -334,47 +381,14 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
     }
 
     private fun blit(target: FBO?) {
-        val vertexes = floatArrayOf(-1f, -1f, -1f, 1f, 1f, 1f, 1f, -1f)
-        val vertexBuffer = ByteBuffer.allocateDirect(vertexes.size * 4) // float have 4 byte
-            .order(ByteOrder.nativeOrder())
-            .asFloatBuffer()
-        vertexBuffer.put(vertexes).position(0)
-
-        val boIds = IntBuffer.allocate(2)
-        GLES30.glGenBuffers(2, boIds)
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, boIds[0])
-        GLES30.glBufferData(
-            GLES30.GL_ARRAY_BUFFER,
-            vertexes.size,
-            vertexBuffer,
-            GLES30.GL_STATIC_DRAW
-        )
-
-        val elements = shortArrayOf(0, 1, 2, 0, 2, 3)
-        val elementBuffer = ByteBuffer.allocateDirect(elements.size * 2) // short have 2 byte
-            .order(ByteOrder.nativeOrder())
-            .asShortBuffer()
-        elementBuffer.put(elements).position(0)
-
-        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, boIds[1])
-        GLES30.glBufferData(
-            GLES30.GL_ELEMENT_ARRAY_BUFFER,
-            elements.size,
-            elementBuffer,
-            GLES30.GL_STATIC_DRAW
-        )
-
-        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
-        GLES30.glEnableVertexAttribArray(0)
-
         if (null == target) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         } else {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, target.fbo)
         }
 
-//        GLES30.glClearColor(0.0f, 0.0f, 0.0f, 0.0f)
-//        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+        GLES30.glClearColor(255.0f, 255.0f, 0.0f, 0.0f)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
         GLES30.glDrawElements(GLES30.GL_TRIANGLES, 6, GLES30.GL_UNSIGNED_SHORT, 0)
     }
@@ -429,6 +443,8 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
         private lateinit var ext: GLContextExt
 
+        private lateinit var ditheringTexture: Texture
+
         lateinit var copyProgram: Program
         private lateinit var blurProgram: Program
         private lateinit var clearProgram: Program
@@ -465,7 +481,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         private var colorUpdateTimer = 0.0
 
         private val pointers = listOf(Prototype())
-        private val splatStack = mutableListOf(Random.nextInt(20) + 5)
+        private val splatStack = mutableListOf<Int>()
 
         private fun <T> MutableList<T>.pop(): T = this.removeAt(this.count() - 1)
 
@@ -943,6 +959,8 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
                         "    }"
             )
 
+            ditheringTexture = createTextureAsync("")
+
             blurProgram = Program(blurVertexShader, blurShader)
             copyProgram = Program(baseVertexShader, copyShader)
             clearProgram = Program(baseVertexShader, clearShader)
@@ -962,6 +980,31 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             gradienSubtractProgram = Program(baseVertexShader, gradientSubtractShader)
 
             displayMaterial = Material(baseVertexShader, displayShaderSource)
+
+            TODO("顶点开启和关闭(原 blit方法代码)")
+
+            val vertexes = floatArrayOf(-1f, -1f, -1f, 1f, 1f, 1f, 1f, -1f)
+            val vertexBuffer = ByteBuffer.allocateDirect(vertexes.size * 4) // float have 4 byte
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+            vertexBuffer.put(vertexes).position(0)
+
+            val boIds = IntBuffer.allocate(2)
+            GLES30.glGenBuffers(2, boIds)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, boIds[0])
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexes.size, vertexBuffer, GLES30.GL_STATIC_DRAW)
+
+            val elements = shortArrayOf(0, 1, 2, 0, 2, 3)
+            val elementBuffer = ByteBuffer.allocateDirect(elements.size * 2) // short have 2 byte
+                .order(ByteOrder.nativeOrder())
+                .asShortBuffer()
+            elementBuffer.put(elements).position(0)
+
+            GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, boIds[1])
+            GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, elements.size, elementBuffer, GLES30.GL_STATIC_DRAW)
+
+            GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+            GLES30.glEnableVertexAttribArray(0)
         }
 
         private fun updateKeywords() {
@@ -1297,8 +1340,8 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             blit(target)
         }
 
-        private fun getTextureScale(texture: Any, width: Int, height: Int): PointF {
-            TODO("getTextureScale")
+        private fun getTextureScale(texture: Texture, width: Int, height: Int): PointF {
+            return PointF(width.toFloat() / texture.width, height.toFloat() / texture.height)
         }
 
         private fun applyBloom(source: FBO, destination: FBO) {
@@ -1535,49 +1578,17 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             val textures = IntBuffer.allocate(1)
             GLES30.glGenTextures(1, textures)
             GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textures[0])
-            GLES30.glTexParameteri(
-                GLES30.GL_TEXTURE_2D,
-                GLES30.GL_TEXTURE_MIN_FILTER,
-                GLES30.GL_NEAREST
-            )
-            GLES30.glTexParameteri(
-                GLES30.GL_TEXTURE_2D,
-                GLES30.GL_TEXTURE_MAG_FILTER,
-                GLES30.GL_NEAREST
-            )
-            GLES30.glTexParameteri(
-                GLES30.GL_TEXTURE_2D,
-                GLES30.GL_TEXTURE_WRAP_S,
-                GLES30.GL_CLAMP_TO_EDGE
-            )
-            GLES30.glTexParameteri(
-                GLES30.GL_TEXTURE_2D,
-                GLES30.GL_TEXTURE_WRAP_T,
-                GLES30.GL_CLAMP_TO_EDGE
-            )
-            GLES30.glTexImage2D(
-                GLES30.GL_TEXTURE_2D,
-                0,
-                internalFormat,
-                4,
-                4,
-                0,
-                format,
-                type,
-                null
-            )
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+            GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, internalFormat, 4, 4, 0, format, type, null)
 
             // init: https://stackoverflow.com/questions/42455918/opengl-does-not-render-to-screen-by-calling-glbindframebuffergl-framebuffer-0
             val fbo = IntBuffer.allocate(1)
-            GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, fbo)
+            GLES30.glGenFramebuffers(1, fbo)
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo[0])
-            GLES30.glFramebufferTexture2D(
-                GLES30.GL_FRAMEBUFFER,
-                GLES30.GL_COLOR_ATTACHMENT0,
-                GLES30.GL_TEXTURE_2D,
-                textures[0],
-                0
-            )
+            GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, textures[0], 0)
 
             val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
             return status == GLES30.GL_FRAMEBUFFER_COMPLETE
