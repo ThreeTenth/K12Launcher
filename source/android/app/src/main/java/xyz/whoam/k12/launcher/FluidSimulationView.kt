@@ -54,7 +54,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
     init {
         renderer = FluidSimulationRenderer()
-        setEGLContextClientVersion(2)
+        setEGLContextClientVersion(3)
         setRenderer(renderer)
     }
 
@@ -134,9 +134,8 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
         fun setKeywords(keywords: List<String>) {
             var hash = 0
-            for (element in keywords) {
+            for (element in keywords)
                 hash += hashcode(element)
-            }
 
             val program: Int
             if (programs.containsKey(hash)) {
@@ -146,7 +145,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
                     compileShader(GLES30.GL_FRAGMENT_SHADER, fragmentShaderSource, keywords)
                 program = createProgram(vertexShader, fragmentShader)
 
-                programs = programs + (hash to program)
+                programs.plus(hash to program)
             }
 
             if (program == activeProgram) return
@@ -284,8 +283,9 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         val count = IntBuffer.allocate(1)
         GLES30.glGetProgramiv(program, GLES30.GL_ACTIVE_UNIFORMS, count)
 
+        val type = IntBuffer.allocate(1)
         for (i in 0 until count[0]) {
-            val uniformName = GLES30.glGetActiveUniform(program, i, count, null)
+            val uniformName = GLES30.glGetActiveUniform(program, i, count, type)
             uniforms[uniformName] = GLES30.glGetUniformLocation(program, uniformName)
         }
 
@@ -323,7 +323,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
     private fun blit(target: FBO?) {
         val vertexes = floatArrayOf(-1f, -1f, -1f, 1f, 1f, 1f, 1f, -1f)
-        val vertexBuffer = ByteBuffer.allocate(vertexes.size * 4) // float have 4 byte
+        val vertexBuffer = ByteBuffer.allocateDirect(vertexes.size * 4) // float have 4 byte
             .order(ByteOrder.nativeOrder())
             .asFloatBuffer()
         vertexBuffer.put(vertexes).position(0)
@@ -339,7 +339,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         val elements = shortArrayOf(0, 1, 2, 0, 2, 3)
-        val elementBuffer = ByteBuffer.allocate(elements.size * 2) // short have 2 byte
+        val elementBuffer = ByteBuffer.allocateDirect(elements.size * 2) // short have 2 byte
             .order(ByteOrder.nativeOrder())
             .asShortBuffer()
         elementBuffer.put(elements).position(0)
@@ -374,7 +374,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
         for (element in s) {
             val c: Char = element
-            hash = ((hash.shr(5)) - hash).plus(c.toInt())
+            hash = ((hash.shl(5)) - hash).plus(c.toInt())
             hash = hash.or(0)
         }
 
@@ -867,7 +867,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         private lateinit var curl: FBO
         private lateinit var pressure: DoubleFBO
         private lateinit var bloom: FBO
-        private val bloomFramebuffers = listOf<FBO>()
+        private val bloomFramebuffers = mutableListOf<FBO>()
         private lateinit var sunrays: FBO
         private lateinit var sunraysTemp: FBO
 
@@ -877,7 +877,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         private var colorUpdateTimer = 0.0
 
         private val pointers = listOf(Prototype())
-        private val splatStack = mutableListOf<Int>()
+        private val splatStack = mutableListOf(Random.nextInt(20) + 5)
 
         private fun <T> MutableList<T>.pop(): T = this.removeAt(this.count() - 1)
 
@@ -887,7 +887,10 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
             GLES30.glViewport(0, 0, width, height)
 
-            surfaceSize = Size(width, height)
+            if (!::surfaceSize.isInitialized)
+                surfaceSize = Size(width, height)
+
+            println("SurfaceSize: " + surfaceSize.width + ", " + surfaceSize.height)
 
 //            TODO("画面大小发生变化时的更新")
         }
@@ -898,7 +901,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
                 initProgram()
                 updateKeywords()
                 initFramebuffers()
-                multipleSplats(Random.nextInt() * 20 + 5)
+                multipleSplats((Random.nextDouble() * 20 + 5).toInt())
             }
             update()
         }
@@ -1031,6 +1034,51 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
                 texType,
                 GLES30.GL_NEAREST
             )
+
+            initBloomFramebuffers()
+            initSunraysFramebuffers()
+        }
+
+        private fun initBloomFramebuffers() {
+            val res = getResolution(config[BLOOM_RESOLUTION] as Int)
+
+            val texType = ext.halfFloatTexType
+            val rgba = ext.formatRGBA
+            val filtering = if (ext.supportLinearFiltering) GLES30.GL_LINEAR else GLES30.GL_NEAREST
+
+            bloom = createFBO(
+                res.width,
+                res.height,
+                rgba.internalFormat,
+                rgba.format,
+                texType,
+                filtering
+            )
+
+            bloomFramebuffers.clear()
+            for (i in 0 until (config[BLOOM_ITERATIONS] as Int)) {
+                val width = res.width.shr(i + 1)
+                val height = res.height.shr(i + 1)
+
+                if (width < 2 || height < 2) break
+
+                val fbo =
+                    createFBO(width, height, rgba.internalFormat, rgba.format, texType, filtering)
+                bloomFramebuffers.add(fbo)
+            }
+        }
+
+        private fun initSunraysFramebuffers() {
+            val res = getResolution(config[SUNRAYS_RESOLUTION] as Int)
+
+            val texType = ext.halfFloatTexType
+            val r = ext.formatR
+            val filtering = if (ext.supportLinearFiltering) GLES30.GL_LINEAR else GLES30.GL_NEAREST
+
+            sunrays =
+                createFBO(res.width, res.height, r.internalFormat, r.format, texType, filtering)
+            sunraysTemp =
+                createFBO(res.width, res.height, r.internalFormat, r.format, texType, filtering)
         }
 
         private fun splatPointer(pointer: Prototype) {
@@ -1055,8 +1103,8 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
         private fun update() {
             val dt = calcDeltaTime()
-            if (resizeCanvas())
-                initFramebuffers()
+//            if (resizeCanvas())
+//                initFramebuffers()
             updateColors(dt)
             applyInputs()
             if (!(config[PAUSED] as Boolean))
@@ -1110,25 +1158,36 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             GLES30.glDisable(GLES30.GL_BLEND)
 
             curlProgram.bind()
-            curlProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                it,
-                velocity.texelSizeX,
-                velocity.texelSizeY
-            ) }
-            curlProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(it, velocity.read.attach(0)) }
+            curlProgram.uniforms["texelSize"]?.let {
+                GLES30.glUniform2f(
+                    it,
+                    velocity.texelSizeX,
+                    velocity.texelSizeY
+                )
+            }
+            curlProgram.uniforms["uVelocity"]?.let {
+                GLES30.glUniform1i(
+                    it,
+                    velocity.read.attach(0)
+                )
+            }
             blit(curl)
 
             vorticityProgram.bind()
-            vorticityProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                it,
-                velocity.texelSizeX,
-                velocity.texelSizeY
-            ) }
-            vorticityProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(
-                it, velocity.read.attach(
-                    0
+            vorticityProgram.uniforms["texelSize"]?.let {
+                GLES30.glUniform2f(
+                    it,
+                    velocity.texelSizeX,
+                    velocity.texelSizeY
                 )
-            ) }
+            }
+            vorticityProgram.uniforms["uVelocity"]?.let {
+                GLES30.glUniform1i(
+                    it, velocity.read.attach(
+                        0
+                    )
+                )
+            }
             vorticityProgram.uniforms["uCurl"]?.let { GLES30.glUniform1i(it, curl.attach(0)) }
             vorticityProgram.uniforms["curl"]?.let { GLES30.glUniform1f(it, config[CURL] as Float) }
             vorticityProgram.uniforms["dt"]?.let { GLES30.glUniform1f(it, dt.toFloat()) }
@@ -1136,109 +1195,141 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             velocity.swap()
 
             divergenceProgram.bind()
-            divergenceProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                it,
-                velocity.texelSizeX,
-                velocity.texelSizeY
-            ) }
-            divergenceProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(
-                it, velocity.read.attach(
-                    0
+            divergenceProgram.uniforms["texelSize"]?.let {
+                GLES30.glUniform2f(
+                    it,
+                    velocity.texelSizeX,
+                    velocity.texelSizeY
                 )
-            ) }
+            }
+            divergenceProgram.uniforms["uVelocity"]?.let {
+                GLES30.glUniform1i(
+                    it, velocity.read.attach(
+                        0
+                    )
+                )
+            }
             blit(divergence)
 
             clearProgram.bind()
-            clearProgram.uniforms["texelSize"]?.let { GLES30.glUniform1i(
-                it,
-                pressure.read.attach(0)
-            ) }
-            clearProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1f(
-                it,
-                config[PRESSURE] as Float
-            ) }
+            clearProgram.uniforms["texelSize"]?.let {
+                GLES30.glUniform1i(
+                    it,
+                    pressure.read.attach(0)
+                )
+            }
+            clearProgram.uniforms["uVelocity"]?.let {
+                GLES30.glUniform1f(
+                    it,
+                    config[PRESSURE] as Float
+                )
+            }
             blit(pressure.write)
             pressure.swap()
 
             pressureProgram.bind()
-            pressureProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                it,
-                velocity.texelSizeX,
-                velocity.texelSizeY
-            ) }
-            pressureProgram.uniforms["uDivergence"]?.let { GLES30.glUniform1i(
-                it, divergence.attach(
-                    0
+            pressureProgram.uniforms["texelSize"]?.let {
+                GLES30.glUniform2f(
+                    it,
+                    velocity.texelSizeX,
+                    velocity.texelSizeY
                 )
-            ) }
-            for (i in 0 until (config[PRESSURE_ITERATIONS] as Int)) {
-                pressureProgram.uniforms["uPressure"]?.let { GLES30.glUniform1i(
-                    it, pressure.read.attach(
-                        1
+            }
+            pressureProgram.uniforms["uDivergence"]?.let {
+                GLES30.glUniform1i(
+                    it, divergence.attach(
+                        0
                     )
-                ) }
+                )
+            }
+            for (i in 0 until (config[PRESSURE_ITERATIONS] as Int)) {
+                pressureProgram.uniforms["uPressure"]?.let {
+                    GLES30.glUniform1i(
+                        it, pressure.read.attach(
+                            1
+                        )
+                    )
+                }
                 blit(pressure.write)
                 pressure.swap()
             }
 
             gradienSubtractProgram.bind()
-            gradienSubtractProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                it,
-                velocity.texelSizeX,
-                velocity.texelSizeY
-            ) }
-            gradienSubtractProgram.uniforms["uPressure"]?.let { GLES30.glUniform1i(
-                it, pressure.read.attach(
-                    0
+            gradienSubtractProgram.uniforms["texelSize"]?.let {
+                GLES30.glUniform2f(
+                    it,
+                    velocity.texelSizeX,
+                    velocity.texelSizeY
                 )
-            ) }
-            gradienSubtractProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(
-                it, pressure.read.attach(
-                    1
+            }
+            gradienSubtractProgram.uniforms["uPressure"]?.let {
+                GLES30.glUniform1i(
+                    it, pressure.read.attach(
+                        0
+                    )
                 )
-            ) }
+            }
+            gradienSubtractProgram.uniforms["uVelocity"]?.let {
+                GLES30.glUniform1i(
+                    it, pressure.read.attach(
+                        1
+                    )
+                )
+            }
             blit(velocity.write)
             velocity.swap()
 
             advectionProgram.bind()
-            advectionProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                it,
-                velocity.texelSizeX,
-                velocity.texelSizeY
-            ) }
-            if (!ext.supportLinearFiltering)
-                advectionProgram.uniforms["dyeTexelSize"]?.let { GLES30.glUniform2f(
+            advectionProgram.uniforms["texelSize"]?.let {
+                GLES30.glUniform2f(
                     it,
                     velocity.texelSizeX,
                     velocity.texelSizeY
-                ) }
+                )
+            }
+            if (!ext.supportLinearFiltering)
+                advectionProgram.uniforms["dyeTexelSize"]?.let {
+                    GLES30.glUniform2f(
+                        it,
+                        velocity.texelSizeX,
+                        velocity.texelSizeY
+                    )
+                }
             val velocityId = velocity.read.attach(0)
             advectionProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(it, velocityId) }
             advectionProgram.uniforms["uSource"]?.let { GLES30.glUniform1i(it, velocityId) }
             advectionProgram.uniforms["dt"]?.let { GLES30.glUniform1f(it, dt.toFloat()) }
-            advectionProgram.uniforms["dissipation"]?.let { GLES30.glUniform1f(
-                it,
-                config[VELOCITY_DISSIPATION] as Float
-            ) }
+            advectionProgram.uniforms["dissipation"]?.let {
+                GLES30.glUniform1f(
+                    it,
+                    config[VELOCITY_DISSIPATION] as Float
+                )
+            }
             blit(velocity.write)
             velocity.swap()
 
             if (!ext.supportLinearFiltering)
-                advectionProgram.uniforms["dyeTexelSize"]?.let { GLES30.glUniform2f(
-                    it,
-                    dye.texelSizeX,
-                    dye.texelSizeY
-                ) }
-            advectionProgram.uniforms["uVelocity"]?.let { GLES30.glUniform1i(
-                it, velocity.read.attach(
-                    0
+                advectionProgram.uniforms["dyeTexelSize"]?.let {
+                    GLES30.glUniform2f(
+                        it,
+                        dye.texelSizeX,
+                        dye.texelSizeY
+                    )
+                }
+            advectionProgram.uniforms["uVelocity"]?.let {
+                GLES30.glUniform1i(
+                    it, velocity.read.attach(
+                        0
+                    )
                 )
-            ) }
+            }
             advectionProgram.uniforms["uSource"]?.let { GLES30.glUniform1i(it, dye.read.attach(1)) }
-            advectionProgram.uniforms["dissipation"]?.let { GLES30.glUniform1f(
-                it,
-                config[DENSITY_DISSIPATION] as Float
-            ) }
+            advectionProgram.uniforms["dissipation"]?.let {
+                GLES30.glUniform1f(
+                    it,
+                    config[DENSITY_DISSIPATION] as Float
+                )
+            }
             blit(dye.write)
             dye.swap()
         }
@@ -1266,34 +1357,48 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
             GLES30.glDisable(GLES30.GL_BLEND)
             bloomPrefilterProgram.bind()
-            val knee = (config[BLOOM_THRESHOLD1] as Float) * (config[BLOOM_SOFT_KNEE] as Float) * 0.00001f
+            val knee =
+                (config[BLOOM_THRESHOLD1] as Float) * (config[BLOOM_SOFT_KNEE] as Float) * 0.00001f
             val curve0 = (config[BLOOM_THRESHOLD1] as Float) - knee
             val curve1 = knee * 2
             val curve2 = 0.25f / knee
-            bloomPrefilterProgram.uniforms["curve"]?.let { GLES30.glUniform3f(
-                it,
-                curve0,
-                curve1,
-                curve2
-            ) }
-            bloomPrefilterProgram.uniforms["threshold"]?.let { GLES30.glUniform1f(
-                it,
-                config[BLOOM_THRESHOLD1] as Float
-            ) }
-            bloomPrefilterProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(
-                it,
-                source.attach(0)
-            ) }
+            bloomPrefilterProgram.uniforms["curve"]?.let {
+                GLES30.glUniform3f(
+                    it,
+                    curve0,
+                    curve1,
+                    curve2
+                )
+            }
+            bloomPrefilterProgram.uniforms["threshold"]?.let {
+                GLES30.glUniform1f(
+                    it,
+                    config[BLOOM_THRESHOLD1] as Float
+                )
+            }
+            bloomPrefilterProgram.uniforms["uTexture"]?.let {
+                GLES30.glUniform1i(
+                    it,
+                    source.attach(0)
+                )
+            }
             blit(last)
 
             bloomBlurProgram.bind()
             for (dest in bloomFramebuffers) {
-                bloomBlurProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                    it,
-                    last.texelSizeX,
-                    last.texelSizeY
-                ) }
-                bloomBlurProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, last.attach(0)) }
+                bloomBlurProgram.uniforms["texelSize"]?.let {
+                    GLES30.glUniform2f(
+                        it,
+                        last.texelSizeX,
+                        last.texelSizeY
+                    )
+                }
+                bloomBlurProgram.uniforms["uTexture"]?.let {
+                    GLES30.glUniform1i(
+                        it,
+                        last.attach(0)
+                    )
+                }
                 blit(dest)
                 last = dest
             }
@@ -1303,28 +1408,44 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
             for (i in bloomFramebuffers.size - 2 downTo 0) {
                 val baseTex = bloomFramebuffers[i]
-                bloomBlurProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                    it,
-                    last.texelSizeX,
-                    last.texelSizeY
-                ) }
-                bloomBlurProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, last.attach(0)) }
+                bloomBlurProgram.uniforms["texelSize"]?.let {
+                    GLES30.glUniform2f(
+                        it,
+                        last.texelSizeX,
+                        last.texelSizeY
+                    )
+                }
+                bloomBlurProgram.uniforms["uTexture"]?.let {
+                    GLES30.glUniform1i(
+                        it,
+                        last.attach(0)
+                    )
+                }
                 blit(baseTex)
                 last = baseTex
             }
 
             GLES30.glDisable(GLES30.GL_BLEND)
             bloomFinalProgram.bind()
-            bloomPrefilterProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                it,
-                last.texelSizeX,
-                last.texelSizeY
-            ) }
-            bloomPrefilterProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, last.attach(0)) }
-            bloomPrefilterProgram.uniforms["intensity"]?.let { GLES30.glUniform1f(
-                it,
-                config[BLOOM_INTENSITY] as Float
-            ) }
+            bloomPrefilterProgram.uniforms["texelSize"]?.let {
+                GLES30.glUniform2f(
+                    it,
+                    last.texelSizeX,
+                    last.texelSizeY
+                )
+            }
+            bloomPrefilterProgram.uniforms["uTexture"]?.let {
+                GLES30.glUniform1i(
+                    it,
+                    last.attach(0)
+                )
+            }
+            bloomPrefilterProgram.uniforms["intensity"]?.let {
+                GLES30.glUniform1f(
+                    it,
+                    config[BLOOM_INTENSITY] as Float
+                )
+            }
             blit(destination)
         }
 
@@ -1335,14 +1456,21 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         ) {
             GLES30.glDisable(GLES30.GL_BLEND)
             sunraysMaskProgram.bind()
-            sunraysMaskProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, source.attach(0)) }
+            sunraysMaskProgram.uniforms["uTexture"]?.let {
+                GLES30.glUniform1i(
+                    it,
+                    source.attach(0)
+                )
+            }
             blit(mask)
 
             sunraysProgram.bind()
-            sunraysProgram.uniforms["weight"]?.let { GLES30.glUniform1f(
-                it,
-                config[SUNRAYS_WEIGHT] as Float
-            ) }
+            sunraysProgram.uniforms["weight"]?.let {
+                GLES30.glUniform1f(
+                    it,
+                    config[SUNRAYS_WEIGHT] as Float
+                )
+            }
             sunraysProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, mask.attach(0)) }
             blit(destination)
         }
@@ -1354,25 +1482,29 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         ) {
             blurProgram.bind()
             for (i in 0 until iterations) {
-                blurProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                    it,
-                    target.texelSizeX,
-                    0.0f
-                ) }
+                blurProgram.uniforms["texelSize"]?.let {
+                    GLES30.glUniform2f(
+                        it,
+                        target.texelSizeX,
+                        0.0f
+                    )
+                }
                 blurProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, target.attach(0)) }
                 blit(temp)
-                blurProgram.uniforms["texelSize"]?.let { GLES30.glUniform2f(
-                    it,
-                    0.0f,
-                    target.texelSizeY
-                ) }
+                blurProgram.uniforms["texelSize"]?.let {
+                    GLES30.glUniform2f(
+                        it,
+                        0.0f,
+                        target.texelSizeY
+                    )
+                }
                 blurProgram.uniforms["uTexture"]?.let { GLES30.glUniform1i(it, temp.attach(0)) }
                 blit(target)
             }
         }
 
         private fun getResolution(resolution: Int): Size {
-            var aspectRation = surfaceSize.width / surfaceSize.height * 1.0f
+            var aspectRation = surfaceSize.width.toFloat() / surfaceSize.height
 
             if (aspectRation < 1.0f) {
                 aspectRation = 1.0f / aspectRation
