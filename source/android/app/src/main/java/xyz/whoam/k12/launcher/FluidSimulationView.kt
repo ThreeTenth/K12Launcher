@@ -381,14 +381,37 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
     }
 
     private fun blit(target: FBO?) {
+        val vertexes = floatArrayOf(-1f, -1f, -1f, 1f, 1f, 1f, 1f, -1f)
+        val vertexBuffer = ByteBuffer.allocateDirect(vertexes.size * 4) // float have 4 byte
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+        vertexBuffer.put(vertexes).position(0)
+
+        val boIds = IntBuffer.allocate(2)
+        GLES30.glGenBuffers(2, boIds)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, boIds[0])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexes.size, vertexBuffer, GLES30.GL_STATIC_DRAW)
+
+        val elements = shortArrayOf(0, 1, 2, 0, 2, 3)
+        val elementBuffer = ByteBuffer.allocateDirect(elements.size * 2) // short have 2 byte
+            .order(ByteOrder.nativeOrder())
+            .asShortBuffer()
+        elementBuffer.put(elements).position(0)
+
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, boIds[1])
+        GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, elements.size, elementBuffer, GLES30.GL_STATIC_DRAW)
+
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+        GLES30.glEnableVertexAttribArray(0)
+
         if (null == target) {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         } else {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, target.fbo)
         }
 
-        GLES30.glClearColor(255.0f, 255.0f, 0.0f, 0.0f)
-        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+//        GLES30.glClearColor(255.0f, 255.0f, 0.0f, 0.0f)
+//        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
         GLES30.glDrawElements(GLES30.GL_TRIANGLES, 6, GLES30.GL_UNSIGNED_SHORT, 0)
     }
@@ -980,31 +1003,6 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             gradienSubtractProgram = Program(baseVertexShader, gradientSubtractShader)
 
             displayMaterial = Material(baseVertexShader, displayShaderSource)
-
-            TODO("顶点开启和关闭(原 blit方法代码)")
-
-            val vertexes = floatArrayOf(-1f, -1f, -1f, 1f, 1f, 1f, 1f, -1f)
-            val vertexBuffer = ByteBuffer.allocateDirect(vertexes.size * 4) // float have 4 byte
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-            vertexBuffer.put(vertexes).position(0)
-
-            val boIds = IntBuffer.allocate(2)
-            GLES30.glGenBuffers(2, boIds)
-            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, boIds[0])
-            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexes.size, vertexBuffer, GLES30.GL_STATIC_DRAW)
-
-            val elements = shortArrayOf(0, 1, 2, 0, 2, 3)
-            val elementBuffer = ByteBuffer.allocateDirect(elements.size * 2) // short have 2 byte
-                .order(ByteOrder.nativeOrder())
-                .asShortBuffer()
-            elementBuffer.put(elements).position(0)
-
-            GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, boIds[1])
-            GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, elements.size, elementBuffer, GLES30.GL_STATIC_DRAW)
-
-            GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
-            GLES30.glEnableVertexAttribArray(0)
         }
 
         private fun updateKeywords() {
