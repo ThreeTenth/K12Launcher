@@ -8,11 +8,14 @@ import android.opengl.GLSurfaceView
 import android.util.AttributeSet
 import android.util.Log
 import android.util.Size
+import android.util.SizeF
+import android.view.MotionEvent
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.IntBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.random.Random
@@ -62,6 +65,20 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         setRenderer(renderer)
     }
 
+    override fun onTouchEvent(event: MotionEvent?): Boolean {
+        when (event!!.action) {
+            MotionEvent.ACTION_DOWN -> renderer.touchStart(event)
+            MotionEvent.ACTION_MOVE -> renderer.touchMove(event)
+            MotionEvent.ACTION_UP -> renderer.touchEnd(event)
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
     data class SupportFormat(val internalFormat: Int, val format: Int)
 
     data class GLContextExt(
@@ -109,12 +126,12 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
     data class Prototype(
         var id: Int = -1,
-        var texcoordX: Int = 0,
-        var texcoordY: Int = 0,
-        var prevTexcoordX: Int = 0,
-        var prevTexcoordY: Int = 0,
-        var deltaX: Int = 0,
-        var deltaY: Int = 0,
+        var texcoordX: Float = 0.0f,
+        var texcoordY: Float = 0.0f,
+        var prevTexcoordX: Float = 0.0f,
+        var prevTexcoordY: Float = 0.0f,
+        var deltaX: Float = 0.0f,
+        var deltaY: Float = 0.0f,
         var down: Boolean = false,
         var moved: Boolean = false,
         var color: Colour = Colour(30f, 0f, 300f)
@@ -262,7 +279,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
                 target.attach(0)
             )
         }
-        blit(newFBO)
+//        renderer.blit(newFBO)
 
         return newFBO
     }
@@ -380,42 +397,6 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         return shader
     }
 
-    private fun blit(target: FBO?) {
-        val vertexes = floatArrayOf(-1f, -1f, -1f, 1f, 1f, 1f, 1f, -1f)
-        val vertexBuffer = ByteBuffer.allocateDirect(vertexes.size * 4) // float have 4 byte
-            .order(ByteOrder.nativeOrder())
-            .asFloatBuffer()
-        vertexBuffer.put(vertexes).position(0)
-
-        val boIds = IntBuffer.allocate(2)
-        GLES30.glGenBuffers(2, boIds)
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, boIds[0])
-        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexes.size, vertexBuffer, GLES30.GL_STATIC_DRAW)
-
-        val elements = shortArrayOf(0, 1, 2, 0, 2, 3)
-        val elementBuffer = ByteBuffer.allocateDirect(elements.size * 2) // short have 2 byte
-            .order(ByteOrder.nativeOrder())
-            .asShortBuffer()
-        elementBuffer.put(elements).position(0)
-
-        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, boIds[1])
-        GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, elements.size, elementBuffer, GLES30.GL_STATIC_DRAW)
-
-        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
-        GLES30.glEnableVertexAttribArray(0)
-
-        if (null == target) {
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-        } else {
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, target.fbo)
-        }
-
-//        GLES30.glClearColor(255.0f, 255.0f, 0.0f, 0.0f)
-//        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-
-        GLES30.glDrawElements(GLES30.GL_TRIANGLES, 6, GLES30.GL_UNSIGNED_SHORT, 0)
-    }
-
     private fun normalizeColor(input: Colour): Colour {
         return Colour(input.r / 255, input.g / 255, input.b / 255)
     }
@@ -465,6 +446,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         )
 
         private lateinit var ext: GLContextExt
+        private val boIds = IntBuffer.allocate(2)
 
         private lateinit var ditheringTexture: Texture
 
@@ -498,12 +480,12 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         private lateinit var sunrays: FBO
         private lateinit var sunraysTemp: FBO
 
-        private lateinit var surfaceSize: Size
+        private lateinit var surfaceSize: SizeF
 
         private var lastUpdateTime = System.currentTimeMillis()
         private var colorUpdateTimer = 0.0
 
-        private val pointers = listOf(Prototype())
+        private val pointers = mutableListOf(Prototype())
         private val splatStack = mutableListOf<Int>()
 
         private fun <T> MutableList<T>.pop(): T = this.removeAt(this.count() - 1)
@@ -515,7 +497,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             GLES30.glViewport(0, 0, width, height)
 
             if (!::surfaceSize.isInitialized)
-                surfaceSize = Size(width, height)
+                surfaceSize = SizeF(width.toFloat(), height.toFloat())
 
             println("SurfaceSize: " + surfaceSize.width + ", " + surfaceSize.height)
 
@@ -526,6 +508,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             if (!::ext.isInitialized) {
                 ext = getGLContextExt()
                 initProgram()
+                initDataBuffer()
                 updateKeywords()
                 initFramebuffers()
                 multipleSplats((Random.nextDouble() * 20 + 5).toInt())
@@ -1005,6 +988,29 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             displayMaterial = Material(baseVertexShader, displayShaderSource)
         }
 
+        private fun initDataBuffer() {
+            val vertexes = floatArrayOf(-1f, -1f, -1f, 1f, 1f, 1f, 1f, -1f)
+            val vertexBuffer = ByteBuffer.allocateDirect(vertexes.size * 4) // float have 4 byte
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+            vertexBuffer.put(vertexes).position(0)
+
+            GLES30.glGenBuffers(2, boIds)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, boIds[0])
+            // Error: a vertex attribute index out of boundary is detected.
+            // 是因为 size 错误，size 应与 buffer 大小保持一致
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vertexes.size * 4, vertexBuffer, GLES30.GL_STATIC_DRAW)
+
+            val elements = shortArrayOf(0, 1, 2, 0, 2, 3)
+            val elementBuffer = ByteBuffer.allocateDirect(elements.size * 2) // short have 2 byte
+                .order(ByteOrder.nativeOrder())
+                .asShortBuffer()
+            elementBuffer.put(elements).position(0)
+
+            GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, boIds[1])
+            GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, elements.size * 2, elementBuffer, GLES30.GL_STATIC_DRAW)
+        }
+
         private fun updateKeywords() {
             val displayKeywords = emptyList<String>().toMutableList()
             if (config[SHADING] as Boolean) displayKeywords.add("SHADING")
@@ -1142,10 +1148,10 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             val dx = pointer.deltaX * (config[SPLAT_FORCE] as Int)
             val dy = pointer.deltaY * (config[SPLAT_FORCE] as Int)
             splat(
-                pointer.texcoordX.toFloat(),
-                pointer.texcoordY.toFloat(),
-                dx.toFloat(),
-                dy.toFloat(),
+                pointer.texcoordX,
+                pointer.texcoordY,
+                dx,
+                dy,
                 pointer.color
             )
         }
@@ -1189,7 +1195,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             val width = scaleByPixelRatio(surfaceSize.width)
             val height = scaleByPixelRatio(surfaceSize.height)
             return if (surfaceSize.width != width || surfaceSize.height != height) {
-                surfaceSize = Size(width, height)
+                surfaceSize = SizeF(width, height)
                 true
             } else false
         }
@@ -1320,8 +1326,8 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
 
         private fun drawDisplay(target: FBO?) {
-            val width = target?.width ?: surfaceSize.width
-            val height = target?.height ?: surfaceSize.height
+            val width = target?.width ?: surfaceSize.width.toInt()
+            val height = target?.height ?: surfaceSize.height.toInt()
 
             displayMaterial.bind()
             if (config[SHADING] as Boolean)
@@ -1421,7 +1427,7 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
         }
 
         private fun getResolution(resolution: Int): Size {
-            var aspectRation = surfaceSize.width.toFloat() / surfaceSize.height
+            var aspectRation = surfaceSize.width / surfaceSize.height
 
             if (aspectRation < 1.0f) {
                 aspectRation = 1.0f / aspectRation
@@ -1438,51 +1444,16 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
         private fun splat(x: Float, y: Float, dx: Float, dy: Float, color: Colour) {
             splatProgram.bind()
-            splatProgram.uniforms["uTarget"]?.let {
-                GLES30.glUniform1i(
-                    it,
-                    velocity.read.attach(0)
-                )
-            }
-            splatProgram.uniforms["aspectRatio"]?.let {
-                GLES30.glUniform1f(
-                    it,
-                    surfaceSize.width.toFloat() / surfaceSize.height
-                )
-            }
-            splatProgram.uniforms["point"]?.let {
-                GLES30.glUniform2f(
-                    it,
-                    x, y
-                )
-            }
-            splatProgram.uniforms["color"]?.let {
-                GLES30.glUniform3f(
-                    it,
-                    dx, dy, 0.0f
-                )
-            }
-            splatProgram.uniforms["radius"]?.let {
-                GLES30.glUniform1f(
-                    it,
-                    correctRadius((config[SPLAT_RADIUS] as Float) / 100.0f)
-                )
-            }
-            blit(velocity.write)
+            GLES30.glUniform1i(splatProgram.uniforms["uTarget"]!!, velocity.read.attach(0))
+            GLES30.glUniform1f(splatProgram.uniforms["aspectRatio"]!!, surfaceSize.width / surfaceSize.height)
+            GLES30.glUniform2f(splatProgram.uniforms["point"]!!, x, y)
+            GLES30.glUniform3f(splatProgram.uniforms["color"]!!, dx, dy, 0.0f)
+            GLES30.glUniform1f(splatProgram.uniforms["radius"]!!, correctRadius((config[SPLAT_RADIUS] as Float) / 100.0f))
+//            blit(velocity.write)
             velocity.swap()
 
-            splatProgram.uniforms["uTarget"]?.let {
-                GLES30.glUniform1i(
-                    it,
-                    dye.read.attach(0)
-                )
-            }
-            splatProgram.uniforms["color"]?.let {
-                GLES30.glUniform3f(
-                    it,
-                    color.r, color.g, color.b
-                )
-            }
+            GLES30.glUniform1i(splatProgram.uniforms["uTarget"]!!, dye.read.attach(0))
+            GLES30.glUniform3f(splatProgram.uniforms["color"]!!, color.r, color.g, color.b)
             blit(dye.write)
             dye.swap()
         }
@@ -1541,9 +1512,9 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
             return if (range == 0) min.toDouble() else (value - min) % range + min
         }
 
-        private fun scaleByPixelRatio(input: Int): Int {
+        private fun scaleByPixelRatio(input: Float): Float {
             val pixelRatio = 1.0f
-            return floor(input * pixelRatio).toInt()
+            return floor(input * pixelRatio)
         }
 
         private fun getSupportedFormat(
@@ -1590,6 +1561,91 @@ class FluidSimulationView(context: Context?, attrs: AttributeSet?) : GLSurfaceVi
 
             val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
             return status == GLES30.GL_FRAMEBUFFER_COMPLETE
+        }
+
+        fun touchStart(event: MotionEvent) {
+            val posX = scaleByPixelRatio(event.x)
+            val posY = scaleByPixelRatio(event.y)
+            updatePointerDownData(pointers[0], 1, posX, posY)
+        }
+
+        private fun updatePointerDownData(pointer: Prototype, id: Int, posX: Float, posY: Float) {
+            pointer.id = id
+            pointer.down = true
+            pointer.moved = false
+            pointer.texcoordX = posX / surfaceSize.width
+            pointer.texcoordY = 1.0f - posY / surfaceSize.height
+            pointer.prevTexcoordX = pointer.texcoordX
+            pointer.prevTexcoordY = pointer.texcoordY
+            pointer.deltaX = 0.0f
+            pointer.deltaY = 0.0f
+            pointer.color = generateColor()
+        }
+
+        fun touchMove(event: MotionEvent) {
+            val pointer = pointers[0]
+            if (!pointer.down) return
+            val posX = scaleByPixelRatio(event.x)
+            val posY = scaleByPixelRatio(event.y)
+            updatePointerMoveData(pointer, posX, posY)
+        }
+
+        private fun updatePointerMoveData(
+            pointer: Prototype,
+            posX: Float,
+            posY: Float
+        ) {
+            pointer.prevTexcoordX = pointer.texcoordX
+            pointer.prevTexcoordY = pointer.texcoordY
+            pointer.texcoordX = posX / surfaceSize.width
+            pointer.texcoordY = 1.0f - posY / surfaceSize.height
+            pointer.deltaX = correctDeltaX(pointer.texcoordX - pointer.prevTexcoordX)
+            pointer.deltaY = correctDeltaY(pointer.texcoordY - pointer.prevTexcoordY)
+            pointer.moved = abs(pointer.deltaX) > 0 || abs(pointer.deltaY) > 0
+        }
+
+        fun touchEnd(event: MotionEvent) {
+            val pointer = pointers[0]
+            updatePointerUpData(pointer)
+        }
+
+        private fun updatePointerUpData(pointer: Prototype) {
+            pointer.down = false
+        }
+
+        fun correctDeltaX (delta: Float): Float {
+            var temp = delta
+            val aspectRatio = surfaceSize.width / surfaceSize.height
+            if (aspectRatio < 1) temp *= aspectRatio
+            return delta
+        }
+
+        fun correctDeltaY (delta: Float): Float {
+            var temp = delta
+            val aspectRatio = surfaceSize.width / surfaceSize.height
+            if (aspectRatio > 1) temp /= aspectRatio
+            return temp
+        }
+
+        fun blit(target: FBO?) {
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, boIds[0])
+            GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, boIds[1])
+
+            GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0)
+            GLES30.glEnableVertexAttribArray(0)
+
+            if (null == target) {
+                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            } else {
+                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, target.fbo)
+            }
+
+//        GLES30.glClearColor(255.0f, 255.0f, 0.0f, 0.0f)
+//        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+
+            GLES30.glDrawElements(GLES30.GL_TRIANGLES, 6, GLES30.GL_UNSIGNED_SHORT, 0)
+
+            GLES30.glDisableVertexAttribArray(0)
         }
     }
 }
