@@ -10,7 +10,7 @@
 
     <!--告诉系统这个 APP 需要 OpenGL ES 2.0-->
     <uses-feature
-        android:glEsVersion="0x00030000"
+        android:glEsVersion="0x00020000"
         android:required="true" />
 
     <!--申明需要纹理压缩-->
